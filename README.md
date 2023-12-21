@@ -47,7 +47,7 @@ At the end of prerequisites, you should have the following values:
 https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks?filteringText=&filteringStatus=active&viewNested=true
 
 ##### 2. Select ‘Stack’, then ‘Create Stack’ and finally ‘Upload a template file’.
-- Upload `cid-gcp-costs.yaml`, click **Next**
+- Upload `GCP-Cost-Dashboard-Stack.yaml`, click **Next**
 
 ##### 3. Insert parameters:
 
@@ -79,5 +79,4 @@ https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/s
 
 2. Upload `GCP-Cost-Dashboard-2.yaml` to your cloudshell.
 
-3. Launch command: `cid-cmd deploy --resources GCP-Cost-Dashboard-2.yaml`
-a
+3. Launch command: `cid-cmd deploy --resources GCP-Cost-Dashboard.yaml`
