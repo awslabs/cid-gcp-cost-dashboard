@@ -77,6 +77,6 @@ https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/s
 
 1. On cloudshell install cid with command: `pip3 install -U cid-cmd`
 
-2. Upload `GCP-Cost-Dashboard-2.yaml` to your cloudshell.
+2. Upload `GCP-Cost-Dashboard.yaml` to your cloudshell.
 
 3. Launch command: `cid-cmd deploy --resources GCP-Cost-Dashboard.yaml`
