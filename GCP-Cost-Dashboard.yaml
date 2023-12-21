@@ -1,0 +1,415 @@
+dashboards:
+  'GCP COST DASHBOARD ':
+    dependsOn:
+      datasets:
+      - gcp_currency
+      - gcp_summary_with_pricing
+    name: 'GCP Cost Dashboard '
+    dashboardId: gcp-cost-dashboard
+    templateId: gcp-cost-dashboard
+    sourceAccountId: '905125075217'
+    region: eu-west-1
+datasets:
+  gcp_currency:
+    data:
+      DataSetId: 380e876a-8054-4210-85e4-26416d2d33bf
+      Name: gcp_currency
+      PhysicalTableMap:
+        fa7db82d-bb3d-427b-8196-44071399eac4:
+          RelationalTable:
+            DataSourceArn: ${athena_datasource_arn}
+            Catalog: AwsDataCatalog
+            Schema: ${athena_database_name}
+            Name: gcp_currency
+            InputColumns:
+            - Name: currency
+              Type: STRING
+            - Name: symbol
+              Type: STRING
+      LogicalTableMap:
+        dde5479c-6e93-4e57-b063-ad0a3c18d44b:
+          Alias: gcp_currency
+          DataTransforms:
+          - ProjectOperation:
+              ProjectedColumns:
+              - currency
+              - symbol
+          Source:
+            PhysicalTableId: fa7db82d-bb3d-427b-8196-44071399eac4
+      ImportMode: SPICE
+    dependsOn:
+      views:
+      - gcp_currency
+    schedules:
+    - default
+  gcp_summary_with_pricing:
+    data:
+      DataSetId: 7bcb18aa-eeff-426e-bfaf-8b61aaac6372
+      Name: gcp_summary_with_pricing
+      PhysicalTableMap:
+        88abd129-1934-46f7-8ff4-42180008f9f5:
+          RelationalTable:
+            DataSourceArn: ${athena_datasource_arn}
+            Catalog: AwsDataCatalog
+            Schema: ${athena_database_name}
+            Name: gcp_current_pricing
+            InputColumns:
+            - Name: sku_id
+              Type: STRING
+            - Name: sku_description
+              Type: STRING
+            - Name: service_id
+              Type: STRING
+            - Name: service_description
+              Type: STRING
+            - Name: export_time
+              Type: DATETIME
+            - Name: pricing_as_of_time
+              Type: DATETIME
+            - Name: billing_account_id
+              Type: STRING
+            - Name: business_entity_name
+              Type: STRING
+            - Name: product_taxonomy
+              Type: STRING
+            - Name: product_taxonomy_1
+              Type: STRING
+            - Name: product_taxonomy_2
+              Type: STRING
+            - Name: product_taxonomy_3
+              Type: STRING
+            - Name: product_taxonomy_4
+              Type: STRING
+            - Name: product_taxonomy_5
+              Type: STRING
+            - Name: product_taxonomy_6
+              Type: STRING
+            - Name: geo_taxonomy_type
+              Type: STRING
+            - Name: geo_taxonomy_regions
+              Type: STRING
+            - Name: pricing_unit
+              Type: STRING
+            - Name: pricing_unit_description
+              Type: STRING
+            - Name: account_currency_code
+              Type: STRING
+            - Name: currency_conversion_rate
+              Type: DECIMAL
+        8b01bdf9-c27f-4ea7-b877-78efc3535910:
+          RelationalTable:
+            DataSourceArn: ${athena_datasource_arn}
+            Catalog: AwsDataCatalog
+            Schema: ${athena_database_name}
+            Name: gcp_summary
+            InputColumns:
+            - Name: billing_account_id
+              Type: STRING
+            - Name: usage_start_time
+              Type: DATETIME
+            - Name: usage_end_time
+              Type: DATETIME
+            - Name: invoice_month
+              Type: DATETIME
+            - Name: service_id
+              Type: STRING
+            - Name: service_description
+              Type: STRING
+            - Name: sku_id
+              Type: STRING
+            - Name: sku_description
+              Type: STRING
+            - Name: project_name
+              Type: STRING
+            - Name: project_id
+              Type: STRING
+            - Name: project_ancestors
+              Type: STRING
+            - Name: project_level_1
+              Type: STRING
+            - Name: project_level_2
+              Type: STRING
+            - Name: project_level_3
+              Type: STRING
+            - Name: project_level_4
+              Type: STRING
+            - Name: project_level_5
+              Type: STRING
+            - Name: project_level_6
+              Type: STRING
+            - Name: location_zone
+              Type: STRING
+            - Name: location_region
+              Type: STRING
+            - Name: location_country
+              Type: STRING
+            - Name: usage_pricing_unit
+              Type: STRING
+            - Name: usage_unit
+              Type: STRING
+            - Name: labels
+              Type: STRING
+            - Name: labels_gke_cluster_name
+              Type: STRING
+            - Name: currency
+              Type: STRING
+            - Name: currency_conversion_rate
+              Type: DECIMAL
+            - Name: cost_type
+              Type: STRING
+            - Name: credits
+              Type: STRING
+            - Name: adjustment_info_id
+              Type: STRING
+            - Name: adjustment_info_description
+              Type: STRING
+            - Name: adjustment_info_mode
+              Type: STRING
+            - Name: adjustment_info_type
+              Type: STRING
+            - Name: system_labels_machine_spec
+              Type: STRING
+            - Name: system_labels_memory
+              Type: STRING
+            - Name: system_labels_cores
+              Type: STRING
+            - Name: system_labels_unused_reservation
+              Type: STRING
+            - Name: credits_sustained_usage_discount_name
+              Type: STRING
+            - Name: credits_commited_usage_discount_name
+              Type: STRING
+            - Name: credits_promotion_name
+              Type: STRING
+            - Name: credits_free_tier_name
+              Type: STRING
+            - Name: credits_discount_name
+              Type: STRING
+            - Name: credits_sustained_usage_discount_amount
+              Type: DECIMAL
+            - Name: credits_commited_usage_discount_amount
+              Type: DECIMAL
+            - Name: credits_promotion_amount
+              Type: DECIMAL
+            - Name: credits_free_tier_amount
+              Type: DECIMAL
+            - Name: credits_discount_amount
+              Type: DECIMAL
+            - Name: credits_total_amount
+              Type: DECIMAL
+            - Name: cost
+              Type: DECIMAL
+            - Name: usage_amount_in_pricing_units
+              Type: DECIMAL
+      LogicalTableMap:
+        86f74f9c-a214-46d4-a98d-1bbd1f76950e:
+          Alias: gcp_current_pricing
+          DataTransforms:
+          - RenameColumnOperation:
+              ColumnName: sku_id
+              NewColumnName: sku_id[gcp_current_pricing]
+          - RenameColumnOperation:
+              ColumnName: sku_description
+              NewColumnName: sku_description[gcp_current_pricing]
+          - RenameColumnOperation:
+              ColumnName: service_id
+              NewColumnName: service_id[gcp_current_pricing]
+          - RenameColumnOperation:
+              ColumnName: service_description
+              NewColumnName: service_description[gcp_current_pricing]
+          - RenameColumnOperation:
+              ColumnName: billing_account_id
+              NewColumnName: billing_account_id[gcp_current_pricing]
+          - RenameColumnOperation:
+              ColumnName: currency_conversion_rate
+              NewColumnName: currency_conversion_rate[gcp_current_pricing]
+          Source:
+            PhysicalTableId: 88abd129-1934-46f7-8ff4-42180008f9f5
+        88a9affa-fae9-4dfe-a915-91b12cb3b4d9:
+          Alias: gcp_summary
+          Source:
+            PhysicalTableId: 8b01bdf9-c27f-4ea7-b877-78efc3535910
+        a1422043-6aea-4879-a4bf-a683543695c3:
+          Alias: Intermediate Table
+          DataTransforms:
+          - TagColumnOperation:
+              ColumnName: location_region
+              Tags:
+              - ColumnGeographicRole: STATE
+          - TagColumnOperation:
+              ColumnName: location_country
+              Tags:
+              - ColumnGeographicRole: COUNTRY
+          - ProjectOperation:
+              ProjectedColumns:
+              - billing_account_id
+              - usage_start_time
+              - usage_end_time
+              - invoice_month
+              - service_id
+              - service_description
+              - sku_id
+              - sku_description
+              - project_name
+              - project_id
+              - project_ancestors
+              - project_level_1
+              - project_level_2
+              - project_level_3
+              - project_level_4
+              - project_level_5
+              - project_level_6
+              - location_zone
+              - location_region
+              - location_country
+              - usage_pricing_unit
+              - usage_unit
+              - labels
+              - labels_gke_cluster_name
+              - currency
+              - currency_conversion_rate
+              - cost_type
+              - credits
+              - adjustment_info_id
+              - adjustment_info_description
+              - adjustment_info_mode
+              - adjustment_info_type
+              - system_labels_machine_spec
+              - system_labels_memory
+              - system_labels_cores
+              - system_labels_unused_reservation
+              - credits_sustained_usage_discount_name
+              - credits_commited_usage_discount_name
+              - credits_promotion_name
+              - credits_free_tier_name
+              - credits_discount_name
+              - credits_sustained_usage_discount_amount
+              - credits_commited_usage_discount_amount
+              - credits_promotion_amount
+              - credits_free_tier_amount
+              - credits_discount_amount
+              - credits_total_amount
+              - cost
+              - usage_amount_in_pricing_units
+              - sku_id[gcp_current_pricing]
+              - sku_description[gcp_current_pricing]
+              - service_id[gcp_current_pricing]
+              - service_description[gcp_current_pricing]
+              - export_time
+              - pricing_as_of_time
+              - billing_account_id[gcp_current_pricing]
+              - business_entity_name
+              - product_taxonomy
+              - product_taxonomy_1
+              - product_taxonomy_2
+              - product_taxonomy_3
+              - product_taxonomy_4
+              - product_taxonomy_5
+              - product_taxonomy_6
+              - geo_taxonomy_type
+              - geo_taxonomy_regions
+              - pricing_unit
+              - pricing_unit_description
+              - account_currency_code
+              - currency_conversion_rate[gcp_current_pricing]
+          Source:
+            JoinInstruction:
+              LeftOperand: 88a9affa-fae9-4dfe-a915-91b12cb3b4d9
+              RightOperand: 86f74f9c-a214-46d4-a98d-1bbd1f76950e
+              Type: LEFT
+              OnClause: '{sku_id} = {sku_id[gcp_current_pricing]} AND {billing_account_id}
+                = {billing_account_id[gcp_current_pricing]}'
+      ImportMode: SPICE
+    dependsOn:
+      views:
+      - gcp_current_pricing
+      - gcp_summary
+    schedules:
+    - default
+views:
+  gcp_current_pricing:
+    data: |-
+      CREATE OR REPLACE VIEW ${athena_database_name}.gcp_current_pricing AS
+      SELECT DISTINCT
+        sku.id sku_id
+      , max_by(sku.description, pricing_as_of_time) sku_description
+      , max_by(service.id, pricing_as_of_time) service_id
+      , max_by(service.description, pricing_as_of_time) service_description
+      , max_by(export_time, pricing_as_of_time) export_time
+      , max_by(pricing_as_of_time, pricing_as_of_time) pricing_as_of_time
+      , max_by(billing_account_id, pricing_as_of_time) billing_account_id
+      , max_by(business_entity_name, pricing_as_of_time) business_entity_name
+      , max_by("array_join"(product_taxonomy, '/'), pricing_as_of_time) product_taxonomy
+      , max_by(TRY(product_taxonomy[(cardinality(product_taxonomy) - 0)]), pricing_as_of_time) product_taxonomy_1
+      , max_by(TRY(product_taxonomy[(cardinality(product_taxonomy) - 1)]), pricing_as_of_time) product_taxonomy_2
+      , max_by(TRY(product_taxonomy[(cardinality(product_taxonomy) - 2)]), pricing_as_of_time) product_taxonomy_3
+      , max_by(TRY(product_taxonomy[(cardinality(product_taxonomy) - 3)]), pricing_as_of_time) product_taxonomy_4
+      , max_by(TRY(product_taxonomy[(cardinality(product_taxonomy) - 4)]), pricing_as_of_time) product_taxonomy_5
+      , max_by(TRY(product_taxonomy[(cardinality(product_taxonomy) - 5)]), pricing_as_of_time) product_taxonomy_6
+      , max_by(geo_taxonomy.type, pricing_as_of_time) geo_taxonomy_type
+      , max_by("array_join"(geo_taxonomy.regions, '/'), pricing_as_of_time) geo_taxonomy_regions
+      , max_by(pricing_unit, pricing_as_of_time) pricing_unit
+      , max_by(pricing_unit_description, pricing_as_of_time) pricing_unit_description
+      , max_by(account_currency_code, pricing_as_of_time) account_currency_code
+      , max_by(currency_conversion_rate, pricing_as_of_time) currency_conversion_rate
+      FROM
+        "gcp_pricing_export" gcp
+      WHERE (CAST(pricing_as_of_time AS date) > (current_date - INTERVAL  '3' MONTH))
+      GROUP BY 1
+  gcp_summary:
+    data: |-
+      CREATE OR REPLACE VIEW ${athena_database_name}.gcp_summary AS
+      SELECT
+        billing_account_id billing_account_id
+      , (CASE WHEN ("date_trunc"('day', CAST(usage_start_time AS timestamp)) >= ("date_trunc"('day', current_timestamp) - INTERVAL  '60' DAY)) THEN "date_trunc"('day', CAST(usage_start_time AS timestamp)) WHEN ("date_trunc"('month', CAST(usage_start_time AS timestamp)) >= ("date_trunc"('month', current_timestamp) - INTERVAL  '3' MONTH)) THEN "date_trunc"('day', CAST(usage_start_time AS timestamp)) ELSE "date_trunc"('month', CAST(usage_start_time AS timestamp)) END) usage_start_time
+      , "date_trunc"('day', CAST(usage_end_time AS timestamp)) usage_end_time
+      , "date_parse"(invoice.month, '%Y%m') invoice_month
+      , service.id service_id
+      , service.description service_description
+      , sku.id sku_id
+      , sku.description sku_description
+      , project.name project_name
+      , project.id project_id
+      , "array_join"("reverse"("transform"(project.ancestors, (x) -> x.display_name)), '/') project_ancestors
+      , TRY(project.ancestors[(cardinality(project.ancestors) - 0)].display_name) project_level_1
+      , TRY(project.ancestors[(cardinality(project.ancestors) - 1)].display_name) project_level_2
+      , TRY(project.ancestors[(cardinality(project.ancestors) - 2)].display_name) project_level_3
+      , TRY(project.ancestors[(cardinality(project.ancestors) - 3)].display_name) project_level_4
+      , TRY(project.ancestors[(cardinality(project.ancestors) - 4)].display_name) project_level_5
+      , TRY(project.ancestors[(cardinality(project.ancestors) - 5)].display_name) project_level_6
+      , location.zone location_zone
+      , location.region location_region
+      , location.country location_country
+      , usage.pricing_unit usage_pricing_unit
+      , usage.unit usage_unit
+      , 'json_format(CAST(labels AS JSON))' labels
+      , TRY(labels['gke_cluster_name']) labels_gke_cluster_name
+      , currency currency
+      , currency_conversion_rate currency_conversion_rate
+      , cost_type cost_type
+      , 'json_format(CAST(credits AS JSON))' credits
+      , TRY(adjustment_info.id) adjustment_info_id
+      , TRY(adjustment_info.description) adjustment_info_description
+      , TRY(adjustment_info.mode) adjustment_info_mode
+      , TRY(adjustment_info.type) adjustment_info_type
+      , TRY(system_labels['compute.googleapis.com/machine_spec']) system_labels_machine_spec
+      , TRY(system_labels['compute.googleapis.com/memory']) system_labels_memory
+      , TRY(system_labels['compute.googleapis.com/cores']) system_labels_cores
+      , TRY(system_labels['compute.googleapis.com/unused_reservation']) system_labels_unused_reservation
+      , reduce(transform("filter"(credits, (x) -> (x.type = 'SUSTAINED_USAGE_DISCOUNT')), (x) -> x.name), '', (s, x) -> concat(s, ' | ', x), (s) -> s) credits_sustained_usage_discount_name
+      , reduce(transform("filter"(credits, (x) -> (x.type = 'COMMITTED_USAGE_DISCOUNT')), (x) -> x.name), '', (s, x) -> concat(s, ' | ', x), (s) -> s) credits_commited_usage_discount_name
+      , COALESCE('skip', reduce(transform("filter"(credits, (x) -> (x.type = 'PROMOTION')), (x) -> x.name), '', (s, x) -> concat(s, ' | ', x), (s) -> s)) credits_promotion_name
+      , reduce(transform("filter"(credits, (x) -> (x.type = 'FREE_TIER')), (x) -> x.name), '', (s, x) -> concat(s, ' | ', x), (s) -> s) credits_free_tier_name
+      , reduce(transform("filter"(credits, (x) -> (x.type = 'DISCOUNT')), (x) -> x.name), '', (s, x) -> concat(s, ' | ', x), (s) -> s) credits_discount_name
+      , sum(reduce(transform("filter"(credits, (x) -> (x.type = 'SUSTAINED_USAGE_DISCOUNT')), (x) -> x.amount), 0, (s, x) -> (s + x), (s) -> s)) credits_sustained_usage_discount_amount
+      , sum(reduce(transform("filter"(credits, (x) -> (x.type = 'COMMITTED_USAGE_DISCOUNT')), (x) -> x.amount), 0, (s, x) -> (s + x), (s) -> s)) credits_commited_usage_discount_amount
+      , sum(reduce(transform("filter"(credits, (x) -> (x.type = 'PROMOTION')), (x) -> x.amount), 0, (s, x) -> (s + x), (s) -> s)) credits_promotion_amount
+      , sum(reduce(transform("filter"(credits, (x) -> (x.type = 'FREE_TIER')), (x) -> x.amount), 0, (s, x) -> (s + x), (s) -> s)) credits_free_tier_amount
+      , sum(reduce(transform("filter"(credits, (x) -> (x.type = 'DISCOUNT')), (x) -> x.amount), 0, (s, x) -> (s + x), (s) -> s)) credits_discount_amount
+      , sum(reduce(transform(credits, (x) -> x.amount), 0, (s, x) -> (s + x), (s) -> s)) credits_total_amount
+      , "sum"(CAST(cost AS double)) cost
+      , "sum"(CAST(usage.amount_in_pricing_units AS double)) usage_amount_in_pricing_units
+      FROM
+        "gcp_billing_export" gcp
+      WHERE ("date_parse"(invoice.month, '%Y%m') > (current_date - INTERVAL  '13' MONTH))
+      GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41
