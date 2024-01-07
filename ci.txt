@@ -1,0 +1,1 @@
+checkov -d gcp-cost-dashboard --skip-check CKV_AWS_117,CKV_AWS_116,CKV_AWS_173,CKV_AWS_111
