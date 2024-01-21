@@ -84,10 +84,12 @@ Parameters:
   
   GCPFullTableName:
     Type: CommaDelimitedList
+    AllowedPattern: "(?:[a-zA-Z0-9_-]+(?:\\.[a-zA-Z0-9_-]+)?\\.gcp_billing_export_v1_[a-zA-Z0-9_]+(?:\\.[a-zA-Z0-9_-]+)?)(?:,(?:[a-zA-Z0-9_-]+(?:\\.[a-zA-Z0-9_-]+)?\\.gcp_billing_export_v1_[a-zA-Z0-9_]+(?:\\.[a-zA-Z0-9_-]+)?))*"
     Description: GCP Billing Full Table Id List - To copy a table id, please click on the three dots on the right of the table name and select \"Copy ID\" # DOCUMENTATION
 
   GCPPricingFullTableName:
     Type: String
+    AllowedPattern: "^[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_]+$"
     Description: GCP Pricing Full Table Id List - To copy a table id, please click on the three dots on the right of the table name and select \"Copy ID\"
   
   GCPConnectionName:
@@ -129,183 +131,221 @@ Resources:
     Properties:
       Code:
         ZipFile: |
-          import boto3
           import os
-          import json
-          import cfn
-
-          def create_glue_trigger(job_name, billing_crawler_name, pricing_crawler_name):
-            response = {}
-            glue_client = boto3.client('glue')
-            existing_triggers = glue_client.get_triggers()
-
-            billing_crawler_trigger_name = billing_crawler_name + "_crawler_24_hour_trigger"
-            pricing_crawler_trigger_name = pricing_crawler_name + "_crawler_24_hour_trigger"
-            job_trigger_name = job_name + "_24_hour_trigger"
-
-            # Check if the triggers already exist
-            billing_crawler_trigger_exists = any(trigger['Name'] == billing_crawler_trigger_name for trigger in existing_triggers['Triggers'])
-            pricing_crawler_trigger_exists = any(trigger['Name'] == pricing_crawler_trigger_name for trigger in existing_triggers['Triggers'])
-            job_trigger_exists = any(trigger['Name'] == job_trigger_name for trigger in existing_triggers['Triggers'])
-
-            if not job_trigger_exists:
-                response[job_name] = glue_client.create_trigger(
-                    Name=job_trigger_name,
-                    Description="Trigger for running " + job_name + " every 24 hours",
-                    Type='SCHEDULED',
-                    Actions=[{
-                        'JobName': job_name,
-                        'Arguments': {}
-                    }],
-                    Schedule="cron(0 0 * * ? *)"
-                )
-                glue_client.start_trigger(Name=job_trigger_name)
-
-            if not billing_crawler_trigger_exists:
-                response[billing_crawler_trigger_name] = glue_client.create_trigger(
-                    Name=billing_crawler_trigger_name,
-                    Description="Trigger for running " + billing_crawler_name + " every 24 hours",
-                    Type='SCHEDULED',
-                    Actions=[{
-                        'CrawlerName': billing_crawler_name,
-                        'Arguments': {}
-                    }],
-                    Schedule="cron(0 0 * * ? *)"
-                )
-                glue_client.start_trigger(Name=billing_crawler_trigger_name)
-
-            if not pricing_crawler_trigger_exists:
-                response[pricing_crawler_trigger_name] = glue_client.create_trigger(
-                    Name=pricing_crawler_trigger_name,
-                    Description="Trigger for running Crawler for " + pricing_crawler_name + " every 24 hours",
-                    Type='SCHEDULED',
-                    Actions=[{
-                        'CrawlerName': pricing_crawler_name,
-                        'Arguments': {}
-                    }],
-                    Schedule="cron(0 1 * * ? *)"
-                )
-                glue_client.start_trigger(Name=pricing_crawler_trigger_name)
-
-            return response
-
-          def lambda_handler(event, context):
-            try:
-                glue_client = boto3.client('glue')
-                response = {}
-
-                script_location = os.environ.get('ScriptLocation')
-                gcp_full_table_name = os.environ.get('GCPFullTableName')
-                gcp_connection_name = os.environ.get('GCPConnectionName')
-                gcp_job_bookmark_keys = os.environ.get('GCPJobBookmarkKeys')
-                billing_target_s3_path = os.environ.get('BillingTargetS3Path')
-                pricing_target_s3_path = os.environ.get('PricingTargetS3Path')
-                target_catalog_database_name = os.environ.get('TargetCatalogDBName')
-                dynamodb_admin_job_table_name = os.environ.get('DynamoDBAdminJobTable')
-                gcp_pricing_location = os.environ.get('GCPPricingLocation')
-                gcp_pricing_full_table_name = os.environ.get('GCPPricingFullTableName')
-                glue_role = os.environ.get('GlueRoleArn')
-                billing_crawler_name = os.environ.get('BillingCrawlerName')
-                pricing_crawler_name = os.environ.get('PricingCrawlerName')
-
-                gcp_full_table_name = gcp_full_table_name.split(";")
-
-                job_names=[]
-
-                for table_name in gcp_full_table_name:
-                  table = table_name.split('.')
-                  table_project = table[0]
-                  table_dataset = table[1]
-
-                  #to align with prefix
+          import boto3
+          import cfnresponse
+          
+          glue_client = boto3.client('glue')
+          
+          script_location = os.environ.get('ScriptLocation')
+          gcp_connection_name = os.environ.get('GCPConnectionName')
+          gcp_job_bookmark_keys = os.environ.get('GCPJobBookmarkKeys')
+          target_catalog_database_name = os.environ.get('TargetCatalogDBName')
+          dynamodb_admin_job_table_name = os.environ.get('DynamoDBAdminJobTable')
+          #gcp_pricing_location = os.environ.get('GCPPricingLocation') # FIXME: not used
+          gcp_billing_full_table_names = os.environ.get('GCPFullTableName').split(";")
+          gcp_pricing_full_table_name = os.environ.get('GCPPricingFullTableName')
+          glue_role = os.environ.get('GlueRoleArn')
+          billing_crawler_name = os.environ.get('BillingCrawlerName')
+          pricing_crawler_name = os.environ.get('PricingCrawlerName')
+          billing_target_s3_path = os.environ.get('BillingTargetS3Path')
+          pricing_target_s3_path = os.environ.get('PricingTargetS3Path')
+          
+          def create_glue_job_trigger(job_name):
+              trigger_name = job_name + "_24_hour_trigger"
+          
+              # Check if the triggers already exist
+              #job_trigger_exists = any(trigger['Name'] == trigger_name for trigger in glue_client.get_triggers()['Triggers'])
+              #if job_trigger_exists:
+              #    print(f'trigger {trigger_name} exists')
+              #    return
+              #else:
+              try:
+                  glue_client.get_trigger(Name=trigger_name)
+                  print(f'trigger {trigger_name} exists')
+                  return
+              except glue_client.exceptions.EntityNotFoundException:
+                  # not found
+                  print(f'Creating {trigger_name}')
+                  glue_client.create_trigger(
+                      Name=trigger_name,
+                      Description="Trigger for running " + job_name + " every 24 hours",
+                      Type='SCHEDULED',
+                      Actions=[{
+                          'JobName': job_name,
+                          'Arguments': {}
+                      }],
+                      Schedule="cron(0 0 * * ? *)"
+                  )
+              print(f'Starting {trigger_name}')
+              try:
+                  glue_client.start_trigger(Name=trigger_name)
+              except Exception as exc:
+                  print(f'ERROR triggering {trigger_name}: {exc}')
+          
+          
+          def create_glue_crawler_trigger(crawler_name):
+              trigger_name = crawler_name + "_crawler_24_hour_trigger"
+          
+              # Check if the triggers already exist
+              #crawler_trigger_exists = any(trigger['Name'] == trigger_name for trigger in glue_client.get_triggers()['Triggers'])
+              #
+              #if crawler_trigger_exists:
+              #    print(f'trigger {crawler_name} exists')
+              #    return
+              try:
+                  glue_client.get_trigger(Name=trigger_name)
+                  print(f'trigger {trigger_name} exists')
+                  return
+              except glue_client.exceptions.EntityNotFoundException:
+                  print(f'Creating {trigger_name}')
+                  glue_client.create_trigger(
+                      Name=trigger_name,
+                      Description="Trigger for running " + crawler_name + " every 24 hours",
+                      Type='SCHEDULED',
+                      Actions=[{
+                          'CrawlerName': crawler_name,
+                          'Arguments': {}
+                      }],
+                      Schedule="cron(0 1 * * ? *)"
+                  )
+                  print(f'Starting {trigger_name}')
+              try:
+                  glue_client.start_trigger(Name=trigger_name)
+              except Exception as exc:
+                  print(f'ERROR triggering {trigger_name}: {exc}')     
+          
+          def create_glue_job(job_name, table_name, target_s3_path):
+              table_project, table_dataset = table_name.split('.')
+              # check if job exists
+              try:
+                  glue_client.get_job(JobName=job_name)
+                  return f'Job {job_name} already exists.'
+              except glue_client.exceptions.EntityNotFoundException:
+                  pass # does not exists
+              response = glue_client.create_job(
+                  Name=job_name,
+                  Role=glue_role,
+                  Command={
+                      'Name': 'glueetl',
+                      'ScriptLocation': script_location
+                  },
+                  Connections={'Connections': [gcp_connection_name]},
+                  DefaultArguments={
+                      '--job-bookmark-option': "job-bookmark-disable",
+                      '--enable-auto-scaling': "true",
+                      '--enable-continuous-cloudwatch-log': "true",
+                      '--enable-observability-metrics': "true",
+                      '--enable-metrics': "true",
+                      '--gcp_parent_project': table_project,
+                      '--gcp_full_table_name': table_name,
+                      '--gcp_connection_name': gcp_connection_name,
+                      '--gcp_job_bookmark_keys': gcp_job_bookmark_keys,
+                      '--gcp_materialization_dataset': table_dataset,
+                      '--target_s3_path': target_s3_path,
+                      '--target_catalog_database_name': target_catalog_database_name,
+                      '--target_catalog_table_name': target_s3_path.rstrip('/').split('/')[-1],
+                      '--dynamodb_admin_job_table_name': dynamodb_admin_job_table_name
+                  },
+                  WorkerType="G.1X",
+                  NumberOfWorkers=2,
+                  GlueVersion="4.0"
+              )
+              # FIXE: check the response
+              return f'Job {job_name} created successfully.'
+          
+          def delete_glue_job(job_name):
+              try:
+                  glue_client.delete_job(JobName=job_name)
+                  return f'deleting {job_name}'
+              except Exception as exc:
+                  return f'Error on deleting {job_name} : {exc}'
+          
+          def delete_trigger(trigger_name):
+              try:
+                  glue_client.delete_Trigger(Name=trigger_name)
+                  return f'deleting {trigger_name}'
+              except Exception as exc:
+                  return f'Error on deleting {trigger_name} : {exc}'
+          
+          def on_create_or_update():
+              """ create jobs """
+              response = {}
+              job_names=[]
+          
+              #Create jobs for each billing table
+              for table_name in gcp_billing_full_table_names:
                   job_name = f'GcpApp_{table_name}'
                   job_names.append(job_name)
-                  try:
-                      glue_client.get_job(JobName=job_name)
-                      response[table_name] = f'Job {job_name} already exists.'
-                  except glue_client.exceptions.EntityNotFoundException:
-                      response = glue_client.create_job(
-                          Name=job_name,
-                          Role=glue_role,
-                          Command={
-                              'Name': 'glueetl',
-                              'ScriptLocation': script_location
-                          },
-                          Connections={'Connections': [gcp_connection_name]},
-                          DefaultArguments={
-                              '--job-bookmark-option': "job-bookmark-disable",
-                              '--enable-auto-scaling': "true",
-                              '--enable-continuous-cloudwatch-log': "true",
-                              '--enable-observability-metrics': "true",
-                              '--enable-metrics': "true",
-                              '--gcp_parent_project': table_project,
-                              '--gcp_full_table_name': table_name,
-                              '--gcp_connection_name': gcp_connection_name,
-                              '--gcp_job_bookmark_keys': gcp_job_bookmark_keys,
-                              '--gcp_materialization_dataset': table_dataset,
-                              '--target_s3_path': billing_target_s3_path,
-                              '--target_catalog_database_name': target_catalog_database_name,
-                              '--target_catalog_table_name': billing_target_s3_path.rstrip('/').split('/')[-1],
-                              '--dynamodb_admin_job_table_name': dynamodb_admin_job_table_name
-                          },
-                          WorkerType="G.1X",
-                          NumberOfWorkers=2,
-                          GlueVersion="4.0"
-                      )
-                      response[table_name] = f'Job {job_name} created successfully.'
-
-                job_name = f'GcpApp_{gcp_pricing_full_table_name}'
-                table = gcp_pricing_full_table_name.split('.')
-                table_project = table[0]
-                table_dataset = table[1]
-                try:
-                    glue_client.get_job(JobName=job_name)
-                    response[gcp_pricing_full_table_name] = f'Job {job_name} already exists.'
-                    job_names.append(job_name)
-                except glue_client.exceptions.EntityNotFoundException:
-                    response = glue_client.create_job(
-                        Name=job_name,
-                        Role=glue_role,
-                        Command={
-                            'Name': 'glueetl',
-                            'ScriptLocation': script_location
-                        },
-                        Connections={'Connections': [gcp_connection_name]},
-                        DefaultArguments={
-                            '--job-bookmark-option': "job-bookmark-disable",
-                            '--enable-continuous-cloudwatch-log': "true",
-                            '--enable-auto-scaling': "true",
-                            '--enable-observability-metrics': "true",
-                            '--enable-metrics': "true",
-                            '--gcp_parent_project': table_project,
-                            '--gcp_full_table_name': gcp_pricing_full_table_name,
-                            '--gcp_connection_name': gcp_connection_name,
-                            '--gcp_job_bookmark_keys': gcp_job_bookmark_keys,
-                            '--gcp_materialization_dataset': table_dataset,
-                            '--target_s3_path': pricing_target_s3_path,
-                            '--target_catalog_database_name': target_catalog_database_name,
-                            '--target_catalog_table_name': pricing_target_s3_path.rstrip('/').split('/')[-1],
-                            '--dynamodb_admin_job_table_name': dynamodb_admin_job_table_name
-                        },
-                        WorkerType="G.1X",
-                        NumberOfWorkers=2,
-                        GlueVersion="4.0"
-                    )
-                    job_names.append(job_name)
-                    response[gcp_pricing_full_table_name] = f'Job {job_name} created successfully.'
-
-
-                for job_name in job_names:
-                  print("Updating triggers..")
-                  create_glue_trigger(job_name, billing_crawler_name, pricing_crawler_name)
-
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, response)
-            except Exception as e:
-                cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+                  response[table_name] = create_glue_job(
+                      job_name=job_name,
+                      table_name=table_name,
+                      target_s3_path=billing_target_s3_path,
+                 )
+          
+              #Create job for pricing
+              job_name = f'GcpApp_{gcp_pricing_full_table_name}'
+              job_names.append(job_name)
+              response[gcp_pricing_full_table_name] = create_glue_job(
+                  job_name=job_name,
+                  table_name=gcp_pricing_full_table_name,
+                  target_s3_path=pricing_target_s3_path,
+              )
+          
+              # Create triggers for jobs and crawlers
+              for job_name in job_names:
+                  print(f"Updating triggers for {job_name}..")
+                  create_glue_job_trigger(job_name)
+              for crawler_name in (billing_crawler_name, pricing_crawler_name):
+                  print(f"Updating triggers for {crawler_name}..")
+                  create_glue_crawler_trigger(crawler_name)
+              return response
+          
+          def on_delete():
+              response = {}
+              job_names=[]
+          
+              #Create jobs for each billing table
+              for table_name in gcp_billing_full_table_names:
+                  job_name = f'GcpApp_{table_name}'
+                  job_names.append(job_name)
+                  response[table_name] = delete_glue_job(
+                      job_name=job_name,
+                 )
+          
+              #Create job for pricing
+              job_name = f'GcpApp_{gcp_pricing_full_table_name}'
+              job_names.append(job_name)
+              response[gcp_pricing_full_table_name] = delete_glue_job(
+                  job_name=job_name,
+              )
+              for job_name in job_names:
+                  print(f"Updating triggers for {job_name}..")
+                  delete_trigger(job_name + '_24_hour_trigger')
+              for crawler_name in (billing_crawler_name, pricing_crawler_name):
+                  print(f"Updating triggers for {crawler_name}..")
+                  delete_trigger(crawler_name + '_crawler_24_hour_trigger')
+              return response
+          
+          
+          def lambda_handler(event, context):
+              request_type = event.get('RequestType', 'Undef')
+              region = boto3.session.Session().region_name
+              log_url = f"https://{region}.console.aws.amazon.com/cloudwatch/home?region={region}#logEvent:group={context.log_group_name};stream={context.log_stream_name}"
+              try:
+                  if request_type in ( 'Create', 'Update') :
+                      response = on_create_or_update()
+                  elif request_type == 'Delete':
+                      response = on_delete()
+                  else: raise Exception('Unexpected request_type = {request_type}')
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, response)
+              except Exception as exc:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(exc) + ' See logs: ' + log_url})
       Handler: index.lambda_handler
       Role: !GetAtt GCPLambdaRole.Arn
       FunctionName: !Sub "${Prefix}-GCPGlueGenerator"
-      Runtime: python3.8
+      Runtime: python3.12
+      Timeout: 60
       Environment:
         Variables:
           GCPFullTableName: !Join [";", !Ref GCPFullTableName]
@@ -338,10 +378,22 @@ Resources:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
-                Action: s3:*
+                Action: 
+                - s3:ListBucket
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+                - s3:GetBucketAcl
+                - s3:GetBucketLocation
                 Resource: !Sub "arn:aws:s3:::${Prefix}-${BucketName}/*"
               - Effect: Allow
-                Action: s3:*
+                Action: 
+                - s3:ListBucket
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+                - s3:GetBucketAcl
+                - s3:GetBucketLocation
                 Resource: !Sub "arn:aws:s3:::${Prefix}-${BucketName}-script/*"
               - Effect: Allow
                 Action:
@@ -356,7 +408,7 @@ Resources:
                 Resource: '*'
               - Effect: Allow
                 Action:
-                  - cloudwatch:*
+                  - cloudwatch:PutMetricData
                 Resource: '*'
               - Effect: Allow
                 Action: 
@@ -395,10 +447,22 @@ Resources:
               Version: '2012-10-17'
               Statement:
                 - Effect: Allow
-                  Action: s3:*
+                  Action: 
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
                   Resource: !Sub "arn:aws:s3:::${Prefix}-${BucketName}/*"
                 - Effect: Allow
-                  Action: s3:*
+                  Action: 
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
                   Resource: !Sub "arn:aws:s3:::${Prefix}-${BucketName}-script/*"
                 - Effect: Allow
                   Action:
@@ -408,7 +472,7 @@ Resources:
                   Resource: '*'
                 - Effect: Allow
                   Action:
-                    - cloudwatch:*
+                    - cloudwatch:PutMetricData
                   Resource: '*'
                 - Effect: Allow
                   Action: 
@@ -535,12 +599,65 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "${Prefix}-${BucketName}"
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+  
+  TargetBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref TargetBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AllowSSLOnly
+            Action: s3:*
+            Effect: Deny
+            Principal: "*"
+            Resource: !Join ["", [!GetAtt TargetBucket.Arn, "/*"]]
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+          - Sid: AllowTLS12Only
+            Action: s3:*
+            Effect: Deny
+            Principal: "*"
+            Resource: !Join ["", [!GetAtt TargetBucket.Arn, "/*"]]
+            Condition:
+              NumericLessThan:
+                s3:TlsVersion: 1.2
 
   ScriptBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "${Prefix}-${BucketName}-script"
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
   
+  ScriptBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ScriptBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AllowSSLOnly
+            Action: s3:*
+            Effect: Deny
+            Principal: "*"
+            Resource: !Join ["", [!GetAtt ScriptBucket.Arn, "/*"]]
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+          - Sid: AllowTLS12Only
+            Action: s3:*
+            Effect: Deny
+            Principal: "*"
+            Resource: !Join ["", [!GetAtt ScriptBucket.Arn, "/*"]]
+            Condition:
+              NumericLessThan:
+                s3:TlsVersion: 1.2
+
+
   GlueConnection:
     Type: AWS::Glue::Connection
     Properties:
@@ -551,22 +668,216 @@ Resources:
         ConnectionProperties:
           SparkProperties: !Sub '{"secretId": "${Secret}"}'
 
-  UpdateScriptLambdaFunction:
+  #UpdateScriptLambdaFunction:
+  #  Type: AWS::Lambda::Function
+  #  Properties:
+  #    Environment:
+  #      Variables:
+  #        SCRIPTBUCKETNAME: !Sub "${Prefix}-${BucketName}-script"
+  #    Code:
+  #      ZipFile: |
+  #        import boto3
+  #        import os
+  #        import cfnresponse
+  #        def lambda_handler(event, context):
+  #            s3 = boto3.client('s3')
+  #            bucket_name = os.environ['SCRIPTBUCKETNAME']
+  #            key = 'glue_script.py'  # Replace with your file name
+  #            script_content = '''
+  #        import sys
+  #        import os
+  #        from awsglue.transforms import *
+  #        from awsglue.utils import getResolvedOptions
+  #        from pyspark.context import SparkContext
+  #        from awsglue.context import GlueContext
+  #        from awsglue.job import Job
+  #        from pyspark.sql.functions import *
+  #        import boto3
+  #        from botocore.exceptions import ClientError
+  #        import datetime as dt
+#
+#
+  #        args = getResolvedOptions(sys.argv, ['JOB_NAME','gcp_full_table_name', 'gcp_parent_project', 'gcp_materialization_dataset', 'gcp_connection_name','gcp_job_bookmark_keys', 'target_s3_path','target_catalog_database_name', 'target_catalog_table_name','dynamodb_admin_job_table_name'])
+#
+  #        dynamodb_client = boto3.client('dynamodb')
+#
+  #        def source_is_empty(glueContext, dynamic_frame):
+  #            if len(dynamic_frame.toDF().head(1)) == 0:
+  #                print("No record Extracted! Committing and exiting job without processing.")
+  #                job.commit()
+  #                os._exit(0)
+#
+  #        # function to get a column in dataframe       
+  #        def addTechCol(rec):
+  #          rec["partitiondate"] = rec['_PARTITIONDATE']
+  #          rec["partitiontime"] = rec['_PARTITIONTIME']
+  #          del rec["_PARTITIONDATE"]
+  #          del rec["_PARTITIONTIME"]
+  #          return rec
+#
+#
+  #        def getJobBookmarkFromDynamoDb(dynamodb_client,dynamodb_bookmark_table_name,glue_job_name):
+  #            response = dynamodb_client.get_item(TableName=dynamodb_bookmark_table_name, Key={'job_id':{'S':str(glue_job_name)}})
+  #            if 'Item' in response:
+  #                job_bookmark = response['Item']['jon_bookmark_value']['S']
+  #                return job_bookmark
+  #            else:
+  #                return '1900-01-01 00:00:00.001'
+#
+  #        def putJobBookmarkToDynamoDb(dynamodb_client,dynamodb_bookmark_table_name,glue_job_name,arg_gcp_job_bookmark_keys,bookmark_value):
+  #            dyn_event = {}
+  #            dyn_event["job_id"] = {'S':str(glue_job_name)}
+  #            dyn_event["jon_bookmark_column"] = {'S':str(arg_gcp_job_bookmark_keys)}
+  #            dyn_event["jon_bookmark_value"] = {'S':str(bookmark_value)}
+  #            dyn_event["timestamp"] = {'S':str(dt.datetime.utcnow().timestamp()*1000)}
+  #            try:
+  #                  ingest_metadata = dynamodb_client.put_item(TableName=dynamodb_bookmark_table_name, Item=dyn_event)
+  #            except ClientError:
+  #                  msg = 'Error putting item {} into {} table'.format(dyn_event, table)
+  #                  print(msg)
+  #                  raise
+#
+  #        sc = SparkContext()
+  #        glueContext = GlueContext(sc)
+  #        spark = glueContext.spark_session
+  #        job = Job(glueContext)
+  #        job.init(args['JOB_NAME'], args)
+#
+  #        arg_job_name = args['JOB_NAME']
+  #        arg_gcp_parent_project = args['gcp_parent_project']
+  #        arg_gcp_full_table_name = args['gcp_full_table_name']
+  #        arg_gcp_connection_name = args['gcp_connection_name']
+  #        arg_gcp_job_bookmark_keys = args['gcp_job_bookmark_keys']
+  #        arg_gcp_materialization_dataset = args['gcp_materialization_dataset']
+#
+  #        arg_target_s3_path = args['target_s3_path'] 
+  #        arg_target_catalog_database_name = args['target_catalog_database_name']
+  #        arg_target_catalog_table_name = args['target_catalog_table_name']
+#
+  #        arg_dynamodb_bookmark_table_name = args['dynamodb_admin_job_table_name']
+#
+  #        job_bookmark_value=getJobBookmarkFromDynamoDb(dynamodb_client,arg_dynamodb_bookmark_table_name,arg_job_name)
+  #        print(job_bookmark_value)
+  #        # Script generated for node Google BigQuery Connector 0.24.2 for AWS Glue 3.0
+  #        GoogleBigQueryConnector0242forAWSGlue30_node1 = glueContext.create_dynamic_frame.from_options(
+  #            connection_type="bigquery",
+  #            connection_options={
+  #                #"table": arg_gcp_full_table_name, # Not required asused the query parameter
+  #                "parentProject": arg_gcp_parent_project,
+  #                "viewsEnabled": "true",
+  #                "materializationDataset": f"{arg_gcp_materialization_dataset}",
+  #                "connectionName": arg_gcp_connection_name,
+  #                "sourceType": "query",
+  #                "query": f'SELECT *, EXTRACT(DAY FROM export_time) AS export_day, EXTRACT(MONTH FROM export_time) AS export_month, EXTRACT(YEAR FROM export_time) AS export_year FROM `{arg_gcp_full_table_name}` where {arg_gcp_job_bookmark_keys} >"{job_bookmark_value}"',
+  #            },
+  #            transformation_ctx="GoogleBigQueryConnector0242forAWSGlue30_node1",
+  #        )
+#
+  #        #Check if the source dataset is empty. If empty exit.
+  #        source_is_empty(glueContext,GoogleBigQueryConnector0242forAWSGlue30_node1)
+#
+  #        GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.coalesce(1)
+#
+  #        print(GoogleBigQueryConnector0242forAWSGlue30_node1.schema())
+  #        GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.resolveChoice(specs=[("_partitiondate", "cast:timestamp")])
+  #        GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.resolveChoice(specs=[("_partitiontime", "cast:timestamp")])
+  #        GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.resolveChoice(specs=[("usage_end_time", "cast:timestamp")])
+  #        GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.resolveChoice(specs=[("usage_start_time", "cast:timestamp")])
+  #        #GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.map(f = addTechCol)
+  #        GoogleBigQueryConnector0242forAWSGlue30_node1.printSchema()
+#
+#
+  #        # Script generated for node Amazon S3
+  #        AmazonS3_node1688108405149 = glueContext.getSink(
+  #            path=arg_target_s3_path,
+  #            connection_type="s3",
+  #            updateBehavior="UPDATE_IN_DATABASE",
+  #            partitionKeys=["billing_account_id","export_year","export_month","export_day"],
+  #            compression="snappy",
+  #            enableUpdateCatalog=True,
+  #            transformation_ctx="AmazonS3_node1688108405149",
+  #        )
+  #        
+  #        AmazonS3_node1688108405149.setCatalogInfo(
+  #            catalogDatabase=arg_target_catalog_database_name, catalogTableName=arg_target_catalog_table_name
+  #        )
+  #        AmazonS3_node1688108405149.setFormat("glueparquet")
+  #        AmazonS3_node1688108405149.writeFrame(GoogleBigQueryConnector0242forAWSGlue30_node1)
+#
+  #        max_bookmark_column = GoogleBigQueryConnector0242forAWSGlue30_node1.toDF().select(max(arg_gcp_job_bookmark_keys)).collect()[0][0]
+  #        max_bookmark_column = max_bookmark_column.strftime("%Y-%m-%d %H:%M:%S.%f")
+  #        print(max_bookmark_column)
+  #        putJobBookmarkToDynamoDb(dynamodb_client,arg_dynamodb_bookmark_table_name,arg_job_name,arg_gcp_job_bookmark_keys,max_bookmark_column)
+  #        job.commit()
+  #            '''
+  #            try:
+  #              s3.put_object(Bucket=bucket_name, Key=key, Body=script_content)
+  #              responseData = {'Message': 'Updated Glue Script successfully'}
+  #              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+  #            except Exception as e:
+  #              cfnresponse.send(event, context, cfnresponse.FAILED, {'Message': 'Failed to upload Glue script'})
+  #    Handler: index.lambda_handler
+  #    Role: !GetAtt LambdaExecutionRole.Arn
+  #    Runtime: python3.8
+  
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${Prefix}-${BucketName}-script/*"
+  
+  UploadS3ObjectResourceLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      Environment:
-        Variables:
-          SCRIPTBUCKETNAME: !Sub "${Prefix}-${BucketName}-script"
+      Description: Custom resource for uploading a text content to S3 Bucket
       Code:
         ZipFile: |
           import boto3
-          import os
           import cfnresponse
+
           def lambda_handler(event, context):
+              request_type = event.get('RequestType', 'Undef')
+              region = context.invoked_function_arn.split(":")[3]
+              log_url = f"https://{region}.console.aws.amazon.com/cloudwatch/home?region={region}#logEvent:group={context.log_group_name};stream={context.log_stream_name}"
               s3 = boto3.client('s3')
-              bucket_name = os.environ['SCRIPTBUCKETNAME']
-              key = 'glue_script.py'  # Replace with your file name
-              script_content = '''
+              try:
+                  bucket_name = event['ResourceProperties']['Bucket']
+                  key = event['ResourceProperties']['Key']
+                  content = event['ResourceProperties']['Content']
+                  if request_type in ('Create', 'Update') :
+                      response = s3.put_object(Bucket=bucket_name, Key=key, Body=content)
+                  elif request_type == 'Delete':
+                      response = s3.delete_object(Bucket=bucket_name, Key=key) # s3 returns ok if object does not exist https://github.com/boto/boto3/issues/1735
+                  else:
+                      raise Exception(f'Unexpected request_type = {request_type}')
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, response)
+              except Exception as exc:
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(exc) + ' See logs: ' + log_url})
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.12
+
+  UploadScriptOnDeployment:
+    Type: Custom::UploadS3ObjectResource
+    Properties:
+      ServiceToken: !GetAtt UploadS3ObjectResourceLambdaFunction.Arn
+      Bucket: !Sub ${Prefix}-${BucketName}-script
+      Key: 'script.py'
+      Content: |
           import sys
           import os
           from awsglue.transforms import *
@@ -699,29 +1010,7 @@ Resources:
                 cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
               except Exception as e:
                 cfnresponse.send(event, context, cfnresponse.FAILED, {'Message': 'Failed to upload Glue script'})
-      Handler: index.lambda_handler
-      Role: !GetAtt LambdaExecutionRole.Arn
-      Runtime: python3.8
-  
-  LambdaExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: LambdaS3Access
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:PutObject
-                Resource: !Sub "arn:aws:s3:::${Prefix}-${BucketName}-script/*"
+
 
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
@@ -730,12 +1019,12 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: cloudformation.amazonaws.com
 
-  UpdateScriptOnDeployment:
-    Type: Custom::LambdaInvoker
-    DependsOn: LambdaInvokePermission
-    Properties:
-      ServiceToken: !GetAtt UpdateScriptLambdaFunction.Arn
-      ScriptBucketName: !Sub ${Prefix}-${BucketName}-script
+  #UpdateScriptOnDeployment:
+  #  Type: Custom::LambdaInvoker
+  #  DependsOn: LambdaInvokePermission
+  #  Properties:
+  #    ServiceToken: !GetAtt UpdateScriptLambdaFunction.Arn
+  #    ScriptBucketName: !Sub ${Prefix}-${BucketName}-script
   
   GlueDatabase:
     Type: AWS::Glue::Database
