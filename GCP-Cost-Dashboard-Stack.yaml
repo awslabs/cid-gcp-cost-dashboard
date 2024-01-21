@@ -1,3 +1,7 @@
+# checkov -d gcp-cost-dashboard --skip-check CKV_AWS_117,CKV_AWS_116,CKV_AWS_173,CKV_AWS_111
+
+
+
 AWSTemplateFormatVersion: "2010-09-09"
 Metadata: 
   AWS::CloudFormation::Interface: 
@@ -13,6 +17,7 @@ Metadata:
           - GCPConnectionName
           - Secret
           - SecretARN
+          - KMSKeyGCP
       - 
         Label: 
           default: "Necessary config - DON'T CHANGE"
@@ -52,6 +57,10 @@ Metadata:
         Type: String
         Description: Name in secrets manager of GCP Service Account JSON encoded in Base64 # ARN OR NAME
       
+      KMSKeyGCP:
+        Type: String
+        Description: ARN of the KMS Key created as prerequisite
+
       GCPBillingLocation:
         Type: String
         Description: DON'T CHANGE - GCP Billing Location
@@ -105,6 +114,10 @@ Parameters:
     Type: String
     Description: Name in secrets manager of GCP Service Account JSON encoded in Base64 # ARN OR NAME
   
+  KMSKeyGCP:
+        Type: String
+        Description: ARN of the KMS Key created as prerequisite
+
   GCPBillingLocation:
     Type: String
     Description: DON'T CHANGE - GCP Billing Location
@@ -405,10 +418,15 @@ Resources:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
+                  - logs:AssociateKmsKey
                 Resource: '*'
               - Effect: Allow
                 Action:
                   - cloudwatch:PutMetricData
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
                 Resource: '*'
               - Effect: Allow
                 Action: 
@@ -419,13 +437,15 @@ Resources:
                   - glue:GetDatabase
                   - glue:GetTable
                   - glue:CreateTable
+                  - glue:GetSecurityConfigurations
+                  - glue:GetSecurityConfiguration
                   - glue:UpdateTable
                   - glue:UpdateDatabase
                   - glue:BatchGetPartition
                   - glue:BatchCreatePartition
                   - glue:BatchUpdatePartition
                   - glue:GetConnection
-                Resource: "*"
+                Resource: '*'
 
   GCPLambdaRole:
       Type: AWS::IAM::Role
@@ -480,6 +500,8 @@ Resources:
                     - glue:GetTable
                     - glue:GetJob
                     - glue:CreateJob
+                    - glue:GetSecurityConfigurations
+                    - glue:GetSecurityConfiguration
                     - glue:UpdateJob
                     - glue:CreateTable
                     - glue:UpdateTable
@@ -489,8 +511,9 @@ Resources:
                     - glue:BatchUpdatePartition
                     - glue:CreateTrigger
                     - glue:StartTrigger
+                    - glue:GetTrigger
                     - glue:GetTriggers
-                  Resource: "*"
+                  Resource: '*'
                 - Effect: Allow
                   Action:
                     - "iam:PassRole"
@@ -502,6 +525,7 @@ Resources:
       FunctionName: !GetAtt GCPLambdaFunction.Arn
       Action: lambda:InvokeFunction
       Principal: cloudformation.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
 
   GCPLambdaInvoker:
     Type: Custom::LambdaInvoker
@@ -510,11 +534,27 @@ Resources:
       ServiceToken: !GetAtt GCPLambdaFunction.Arn
       ScriptBucketName: !Sub ${Prefix}-${BucketName}-script
 
+  GlueSecurityConfiguration:
+      Type: AWS::Glue::SecurityConfiguration
+      Properties:
+        Name: "GCPGlueSecurityConfiguration"
+        EncryptionConfiguration:
+          CloudWatchEncryption: 
+            CloudWatchEncryptionMode: SSE-KMS
+            KmsKeyArn: !Ref KMSKeyGCP
+          JobBookmarksEncryption: 
+            JobBookmarksEncryptionMode: CSE-KMS 
+            KmsKeyArn: !Ref KMSKeyGCP
+          S3Encryptions: 
+            - S3EncryptionMode: SSE-KMS 
+              KmsKeyArn: !Ref KMSKeyGCP
+
   GlueCrawler:
     Type: "AWS::Glue::Crawler"
     DependsOn: TargetBucket
     Properties:
       Role: !GetAtt GcpBillingCrawlerRole.Arn
+      CrawlerSecurityConfiguration: !Ref GlueSecurityConfiguration
       DatabaseName: !Ref TargetCatalogDBName
       Name: !Sub "${Prefix}-GCP_Billing_Crawler"
       Description: "Crawler to recursively crawl data from S3 for GCP Billing"
@@ -531,6 +571,7 @@ Resources:
     DependsOn: TargetBucket
     Properties:
       Role: !GetAtt GcpBillingCrawlerRole.Arn
+      CrawlerSecurityConfiguration: !Ref GlueSecurityConfiguration
       DatabaseName: !Ref TargetCatalogDBName
       Name: !Sub "${Prefix}-GCP_Pricing_Crawler"
       Description: "Crawler to recursively crawl data from S3 for GCP Pricing"
@@ -545,6 +586,12 @@ Resources:
   DynamoDBAdminJobTable:
     Type: AWS::DynamoDB::Table
     Properties:
+      SSESpecification:
+        SSEEnabled: true
+        KMSMasterKeyId: !Ref KMSKeyGCP
+        SSEType: KMS
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: True
       TableName: !Sub "${Prefix}-${TargetCatalogDBName}-AdminJobTable"
       AttributeDefinitions:
         - AttributeName: "job_id"
@@ -581,24 +628,37 @@ Resources:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: "*"
+                Resource: '*'
               - Effect: Allow
                 Action:
                   - glue:GetDatabase
                   - glue:GetTable
                   - glue:CreateTable
+                  - glue:GetSecurityConfigurations
+                  - glue:GetSecurityConfiguration
                   - glue:UpdateTable
                   - glue:UpdateDatabase
                   - glue:BatchGetPartition
                   - glue:BatchCreatePartition
                   - glue:BatchUpdatePartition
                   - glue:UpdatePartition
+                  - glue:GetTriggers
                 Resource: "*"
 
   TargetBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "${Prefix}-${BucketName}"
+      LoggingConfiguration:
+        DestinationBucketName: !Sub "${Prefix}-${BucketName}"
+        LogFilePrefix: "access-log"
+      VersioningConfiguration:
+        Status: "Enabled"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
   
@@ -630,6 +690,16 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "${Prefix}-${BucketName}-script"
+      LoggingConfiguration:
+        DestinationBucketName: !Sub "${Prefix}-${BucketName}-script"
+        LogFilePrefix: "access-log"
+      VersioningConfiguration:
+        Status: "Enabled"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
   
@@ -820,25 +890,25 @@ Resources:
   #    Role: !GetAtt LambdaExecutionRole.Arn
   #    Runtime: python3.8
   
-  LambdaExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: LambdaS3Access
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:PutObject
-                Resource: !Sub "arn:aws:s3:::${Prefix}-${BucketName}-script/*"
+  #LambdaExecutionRole:
+  #  Type: AWS::IAM::Role
+  #  Properties:
+  #    AssumeRolePolicyDocument:
+  #      Version: '2012-10-17'
+  #      Statement:
+  #        - Effect: Allow
+  #          Principal:
+  #            Service: lambda.amazonaws.com
+  #          Action: sts:AssumeRole
+  #    Policies:
+  #      - PolicyName: LambdaS3Access
+  #        PolicyDocument:
+  #          Version: '2012-10-17'
+  #          Statement:
+  #            - Effect: Allow
+  #              Action:
+  #                - s3:PutObject
+  #              Resource: !Sub "arn:aws:s3:::${Prefix}-${BucketName}-script/*"
   
   UploadS3ObjectResourceLambdaFunction:
     Type: AWS::Lambda::Function
@@ -1010,7 +1080,30 @@ Resources:
                 cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
               except Exception as e:
                 cfnresponse.send(event, context, cfnresponse.FAILED, {'Message': 'Failed to upload Glue script'})
-
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.12
+      ReservedConcurrentExecutions: 100
+  
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaS3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${Prefix}-${BucketName}-script/*"
 
   LambdaInvokePermission:
     Type: AWS::Lambda::Permission
@@ -1018,6 +1111,7 @@ Resources:
       FunctionName: !GetAtt UpdateScriptLambdaFunction.Arn
       Action: lambda:InvokeFunction
       Principal: cloudformation.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
 
   #UpdateScriptOnDeployment:
   #  Type: Custom::LambdaInvoker
