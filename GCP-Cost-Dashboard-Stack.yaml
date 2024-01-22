@@ -17,7 +17,7 @@ Metadata:
           - GCPConnectionName
           - Secret
           - SecretARN
-          - KMSKeyGCP
+          - KMSOwners
       - 
         Label: 
           default: "Necessary config - DON'T CHANGE"
@@ -57,9 +57,9 @@ Metadata:
         Type: String
         Description: Name in secrets manager of GCP Service Account JSON encoded in Base64 # ARN OR NAME
       
-      KMSKeyGCP:
-        Type: String
-        Description: ARN of the KMS Key created as prerequisite
+      KMSOwners:
+        Type: CommaDelimitedList
+        Description: ARN of the KMS Owners. !!! Current User is mandatory !!!
 
       GCPBillingLocation:
         Type: String
@@ -79,7 +79,7 @@ Metadata:
       TargetCatalogDBName:
         Type: String
         Description: DON'T CHANGE - Target Catalog Database Name
-        Default: gcpapp_dbmult4
+        Default: gcpapp_db
 
 Parameters:
   Prefix:
@@ -114,9 +114,9 @@ Parameters:
     Type: String
     Description: Name in secrets manager of GCP Service Account JSON encoded in Base64 # ARN OR NAME
   
-  KMSKeyGCP:
-        Type: String
-        Description: ARN of the KMS Key created as prerequisite
+  KMSOwners:
+    Type: CommaDelimitedList
+    Description: ARN of the KMS Owners. !!! Current User is mandatory !!!
 
   GCPBillingLocation:
     Type: String
@@ -229,7 +229,7 @@ Resources:
                   print(f'ERROR triggering {trigger_name}: {exc}')     
           
           def create_glue_job(job_name, table_name, target_s3_path):
-              table_project, table_dataset = table_name.split('.')
+              table_project, table_dataset, table_id = table_name.split('.')
               # check if job exists
               try:
                   glue_client.get_job(JobName=job_name)
@@ -294,7 +294,7 @@ Resources:
                       job_name=job_name,
                       table_name=table_name,
                       target_s3_path=billing_target_s3_path,
-                 )
+                  )
           
               #Create job for pricing
               job_name = f'GcpApp_{gcp_pricing_full_table_name}'
@@ -462,7 +462,7 @@ Resources:
                 Service: lambda.amazonaws.com
               Action: sts:AssumeRole
         Policies:
-          - PolicyName: GlueS3Access
+          - PolicyName: GCPDashboardPolicy
             PolicyDocument:
               Version: '2012-10-17'
               Statement:
@@ -503,6 +503,7 @@ Resources:
                     - glue:GetSecurityConfigurations
                     - glue:GetSecurityConfiguration
                     - glue:UpdateJob
+                    - glue:DeleteJob
                     - glue:CreateTable
                     - glue:UpdateTable
                     - glue:UpdateDatabase
@@ -534,6 +535,62 @@ Resources:
       ServiceToken: !GetAtt GCPLambdaFunction.Arn
       ScriptBucketName: !Sub ${Prefix}-${BucketName}-script
 
+  KMSKey:
+    Type: "AWS::KMS::Key"
+    #DependsOn:
+    #     - "GlueRole"
+    #     - "GCPLambdaRole"
+    #     - "GcpBillingCrawlerRole"
+    #     - "LambdaExecutionRole"
+    Properties:
+      Description: "GCP CID Dashboard KMS Key"
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: default
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref KMSOwners
+            Action:
+              - kms:Create*
+              - kms:Describe*
+              - kms:Enable*
+              - kms:List*
+              - kms:Put*
+              - kms:Update*
+              - kms:Revoke*
+              - kms:Disable*
+              - kms:Get*
+              - kms:Delete*
+              - kms:ScheduleKeyDeletion
+              - kms:CancelKeyDeletion
+            Resource: "*"
+          - Effect: Allow
+            Principal:
+              AWS: !Ref KMSOwners
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+          - Effect: Allow
+            Principal:
+              AWS: 
+                - !GetAtt GlueRole.Arn
+                - !GetAtt GCPLambdaRole.Arn
+                - !GetAtt GcpBillingCrawlerRole.Arn
+                - !GetAtt LambdaExecutionRole.Arn
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+      KeyUsage: "ENCRYPT_DECRYPT"
+
   GlueSecurityConfiguration:
       Type: AWS::Glue::SecurityConfiguration
       Properties:
@@ -541,17 +598,16 @@ Resources:
         EncryptionConfiguration:
           CloudWatchEncryption: 
             CloudWatchEncryptionMode: SSE-KMS
-            KmsKeyArn: !Ref KMSKeyGCP
+            KmsKeyArn: !GetAtt KMSKey.Arn
           JobBookmarksEncryption: 
             JobBookmarksEncryptionMode: CSE-KMS 
-            KmsKeyArn: !Ref KMSKeyGCP
+            KmsKeyArn: !GetAtt KMSKey.Arn
           S3Encryptions: 
             - S3EncryptionMode: SSE-KMS 
-              KmsKeyArn: !Ref KMSKeyGCP
+              KmsKeyArn: !GetAtt KMSKey.Arn
 
   GlueCrawler:
     Type: "AWS::Glue::Crawler"
-    DependsOn: TargetBucket
     Properties:
       Role: !GetAtt GcpBillingCrawlerRole.Arn
       CrawlerSecurityConfiguration: !Ref GlueSecurityConfiguration
@@ -568,7 +624,6 @@ Resources:
   
   GluePricingCrawler:
     Type: "AWS::Glue::Crawler"
-    DependsOn: TargetBucket
     Properties:
       Role: !GetAtt GcpBillingCrawlerRole.Arn
       CrawlerSecurityConfiguration: !Ref GlueSecurityConfiguration
@@ -586,10 +641,10 @@ Resources:
   DynamoDBAdminJobTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      SSESpecification:
-        SSEEnabled: true
-        KMSMasterKeyId: !Ref KMSKeyGCP
-        SSEType: KMS
+      #SSESpecification:
+      #  SSEEnabled: true
+      #  KMSMasterKeyId: !GetAtt KMSKey.Arn
+      #  SSEType: KMS
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: True
       TableName: !Sub "${Prefix}-${TargetCatalogDBName}-AdminJobTable"
@@ -946,7 +1001,7 @@ Resources:
     Properties:
       ServiceToken: !GetAtt UploadS3ObjectResourceLambdaFunction.Arn
       Bucket: !Sub ${Prefix}-${BucketName}-script
-      Key: 'script.py'
+      Key: 'glue_script.py'
       Content: |
           import sys
           import os
@@ -1073,13 +1128,6 @@ Resources:
           print(max_bookmark_column)
           putJobBookmarkToDynamoDb(dynamodb_client,arg_dynamodb_bookmark_table_name,arg_job_name,arg_gcp_job_bookmark_keys,max_bookmark_column)
           job.commit()
-              '''
-              try:
-                s3.put_object(Bucket=bucket_name, Key=key, Body=script_content)
-                responseData = {'Message': 'Updated Glue Script successfully'}
-                cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
-              except Exception as e:
-                cfnresponse.send(event, context, cfnresponse.FAILED, {'Message': 'Failed to upload Glue script'})
       Handler: index.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Runtime: python3.12
@@ -1104,14 +1152,20 @@ Resources:
                 Action:
                   - s3:PutObject
                 Resource: !Sub "arn:aws:s3:::${Prefix}-${BucketName}-script/*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
 
-  LambdaInvokePermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !GetAtt UpdateScriptLambdaFunction.Arn
-      Action: lambda:InvokeFunction
-      Principal: cloudformation.amazonaws.com
-      SourceAccount: !Ref AWS::AccountId
+  #LambdaInvokePermission:
+  #  Type: AWS::Lambda::Permission
+  #  Properties:
+  #    FunctionName: !GetAtt UpdateScriptLambdaFunction.Arn
+  #    Action: lambda:InvokeFunction
+  #    Principal: cloudformation.amazonaws.com
+  #    SourceAccount: !Ref AWS::AccountId
 
   #UpdateScriptOnDeployment:
   #  Type: Custom::LambdaInvoker
