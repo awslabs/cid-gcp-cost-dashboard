@@ -1,7 +1,3 @@
-# checkov -d gcp-cost-dashboard --skip-check CKV_AWS_117,CKV_AWS_116,CKV_AWS_173,CKV_AWS_111
-
-
-
 AWSTemplateFormatVersion: "2010-09-09"
 Metadata: 
   AWS::CloudFormation::Interface: 
@@ -168,11 +164,6 @@ Resources:
               trigger_name = job_name + "_24_hour_trigger"
           
               # Check if the triggers already exist
-              #job_trigger_exists = any(trigger['Name'] == trigger_name for trigger in glue_client.get_triggers()['Triggers'])
-              #if job_trigger_exists:
-              #    print(f'trigger {trigger_name} exists')
-              #    return
-              #else:
               try:
                   glue_client.get_trigger(Name=trigger_name)
                   print(f'trigger {trigger_name} exists')
@@ -339,7 +330,6 @@ Resources:
                   print(f"Updating triggers for {crawler_name}..")
                   delete_trigger(crawler_name + '_crawler_24_hour_trigger')
               return response
-          
           
           def lambda_handler(event, context):
               request_type = event.get('RequestType', 'Undef')
@@ -537,11 +527,6 @@ Resources:
 
   KMSKey:
     Type: "AWS::KMS::Key"
-    #DependsOn:
-    #     - "GlueRole"
-    #     - "GCPLambdaRole"
-    #     - "GcpBillingCrawlerRole"
-    #     - "LambdaExecutionRole"
     Properties:
       Description: "GCP CID Dashboard KMS Key"
       KeyPolicy:
@@ -579,9 +564,19 @@ Resources:
             Principal:
               AWS: 
                 - !GetAtt GlueRole.Arn
-                - !GetAtt GCPLambdaRole.Arn
                 - !GetAtt GcpBillingCrawlerRole.Arn
                 - !GetAtt LambdaExecutionRole.Arn
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:ReEncrypt*
+              - kms:GenerateDataKey*
+              - kms:DescribeKey
+            Resource: "*"
+          - Effect: Allow
+            Principal:
+              Service:
+                - !Sub "logs.${AWS::Region}.amazonaws.com"
             Action:
               - kms:Encrypt
               - kms:Decrypt
@@ -680,9 +675,18 @@ Resources:
                   - !Sub "arn:aws:s3:::${Prefix}-${BucketName}/*"
               - Effect: Allow
                 Action:
+                  - kms:GenerateDataKey
+                  - kms:Encrypt
+                  - kms:Decrypt
+                Resource: 
+                  - !GetAtt "arn:aws:s3:::${Prefix}-${BucketName}"
+                  - !Sub "arn:aws:s3:::${Prefix}-${BucketName}/*"
+              - Effect: Allow
+                Action:
                   - logs:CreateLogGroup
                   - logs:CreateLogStream
                   - logs:PutLogEvents
+                  - logs:AssociateKmsKey
                 Resource: '*'
               - Effect: Allow
                 Action:
@@ -782,7 +786,6 @@ Resources:
               NumericLessThan:
                 s3:TlsVersion: 1.2
 
-
   GlueConnection:
     Type: AWS::Glue::Connection
     Properties:
@@ -792,178 +795,6 @@ Resources:
         ConnectionType: "BIGQUERY"
         ConnectionProperties:
           SparkProperties: !Sub '{"secretId": "${Secret}"}'
-
-  #UpdateScriptLambdaFunction:
-  #  Type: AWS::Lambda::Function
-  #  Properties:
-  #    Environment:
-  #      Variables:
-  #        SCRIPTBUCKETNAME: !Sub "${Prefix}-${BucketName}-script"
-  #    Code:
-  #      ZipFile: |
-  #        import boto3
-  #        import os
-  #        import cfnresponse
-  #        def lambda_handler(event, context):
-  #            s3 = boto3.client('s3')
-  #            bucket_name = os.environ['SCRIPTBUCKETNAME']
-  #            key = 'glue_script.py'  # Replace with your file name
-  #            script_content = '''
-  #        import sys
-  #        import os
-  #        from awsglue.transforms import *
-  #        from awsglue.utils import getResolvedOptions
-  #        from pyspark.context import SparkContext
-  #        from awsglue.context import GlueContext
-  #        from awsglue.job import Job
-  #        from pyspark.sql.functions import *
-  #        import boto3
-  #        from botocore.exceptions import ClientError
-  #        import datetime as dt
-#
-#
-  #        args = getResolvedOptions(sys.argv, ['JOB_NAME','gcp_full_table_name', 'gcp_parent_project', 'gcp_materialization_dataset', 'gcp_connection_name','gcp_job_bookmark_keys', 'target_s3_path','target_catalog_database_name', 'target_catalog_table_name','dynamodb_admin_job_table_name'])
-#
-  #        dynamodb_client = boto3.client('dynamodb')
-#
-  #        def source_is_empty(glueContext, dynamic_frame):
-  #            if len(dynamic_frame.toDF().head(1)) == 0:
-  #                print("No record Extracted! Committing and exiting job without processing.")
-  #                job.commit()
-  #                os._exit(0)
-#
-  #        # function to get a column in dataframe       
-  #        def addTechCol(rec):
-  #          rec["partitiondate"] = rec['_PARTITIONDATE']
-  #          rec["partitiontime"] = rec['_PARTITIONTIME']
-  #          del rec["_PARTITIONDATE"]
-  #          del rec["_PARTITIONTIME"]
-  #          return rec
-#
-#
-  #        def getJobBookmarkFromDynamoDb(dynamodb_client,dynamodb_bookmark_table_name,glue_job_name):
-  #            response = dynamodb_client.get_item(TableName=dynamodb_bookmark_table_name, Key={'job_id':{'S':str(glue_job_name)}})
-  #            if 'Item' in response:
-  #                job_bookmark = response['Item']['jon_bookmark_value']['S']
-  #                return job_bookmark
-  #            else:
-  #                return '1900-01-01 00:00:00.001'
-#
-  #        def putJobBookmarkToDynamoDb(dynamodb_client,dynamodb_bookmark_table_name,glue_job_name,arg_gcp_job_bookmark_keys,bookmark_value):
-  #            dyn_event = {}
-  #            dyn_event["job_id"] = {'S':str(glue_job_name)}
-  #            dyn_event["jon_bookmark_column"] = {'S':str(arg_gcp_job_bookmark_keys)}
-  #            dyn_event["jon_bookmark_value"] = {'S':str(bookmark_value)}
-  #            dyn_event["timestamp"] = {'S':str(dt.datetime.utcnow().timestamp()*1000)}
-  #            try:
-  #                  ingest_metadata = dynamodb_client.put_item(TableName=dynamodb_bookmark_table_name, Item=dyn_event)
-  #            except ClientError:
-  #                  msg = 'Error putting item {} into {} table'.format(dyn_event, table)
-  #                  print(msg)
-  #                  raise
-#
-  #        sc = SparkContext()
-  #        glueContext = GlueContext(sc)
-  #        spark = glueContext.spark_session
-  #        job = Job(glueContext)
-  #        job.init(args['JOB_NAME'], args)
-#
-  #        arg_job_name = args['JOB_NAME']
-  #        arg_gcp_parent_project = args['gcp_parent_project']
-  #        arg_gcp_full_table_name = args['gcp_full_table_name']
-  #        arg_gcp_connection_name = args['gcp_connection_name']
-  #        arg_gcp_job_bookmark_keys = args['gcp_job_bookmark_keys']
-  #        arg_gcp_materialization_dataset = args['gcp_materialization_dataset']
-#
-  #        arg_target_s3_path = args['target_s3_path'] 
-  #        arg_target_catalog_database_name = args['target_catalog_database_name']
-  #        arg_target_catalog_table_name = args['target_catalog_table_name']
-#
-  #        arg_dynamodb_bookmark_table_name = args['dynamodb_admin_job_table_name']
-#
-  #        job_bookmark_value=getJobBookmarkFromDynamoDb(dynamodb_client,arg_dynamodb_bookmark_table_name,arg_job_name)
-  #        print(job_bookmark_value)
-  #        # Script generated for node Google BigQuery Connector 0.24.2 for AWS Glue 3.0
-  #        GoogleBigQueryConnector0242forAWSGlue30_node1 = glueContext.create_dynamic_frame.from_options(
-  #            connection_type="bigquery",
-  #            connection_options={
-  #                #"table": arg_gcp_full_table_name, # Not required asused the query parameter
-  #                "parentProject": arg_gcp_parent_project,
-  #                "viewsEnabled": "true",
-  #                "materializationDataset": f"{arg_gcp_materialization_dataset}",
-  #                "connectionName": arg_gcp_connection_name,
-  #                "sourceType": "query",
-  #                "query": f'SELECT *, EXTRACT(DAY FROM export_time) AS export_day, EXTRACT(MONTH FROM export_time) AS export_month, EXTRACT(YEAR FROM export_time) AS export_year FROM `{arg_gcp_full_table_name}` where {arg_gcp_job_bookmark_keys} >"{job_bookmark_value}"',
-  #            },
-  #            transformation_ctx="GoogleBigQueryConnector0242forAWSGlue30_node1",
-  #        )
-#
-  #        #Check if the source dataset is empty. If empty exit.
-  #        source_is_empty(glueContext,GoogleBigQueryConnector0242forAWSGlue30_node1)
-#
-  #        GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.coalesce(1)
-#
-  #        print(GoogleBigQueryConnector0242forAWSGlue30_node1.schema())
-  #        GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.resolveChoice(specs=[("_partitiondate", "cast:timestamp")])
-  #        GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.resolveChoice(specs=[("_partitiontime", "cast:timestamp")])
-  #        GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.resolveChoice(specs=[("usage_end_time", "cast:timestamp")])
-  #        GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.resolveChoice(specs=[("usage_start_time", "cast:timestamp")])
-  #        #GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.map(f = addTechCol)
-  #        GoogleBigQueryConnector0242forAWSGlue30_node1.printSchema()
-#
-#
-  #        # Script generated for node Amazon S3
-  #        AmazonS3_node1688108405149 = glueContext.getSink(
-  #            path=arg_target_s3_path,
-  #            connection_type="s3",
-  #            updateBehavior="UPDATE_IN_DATABASE",
-  #            partitionKeys=["billing_account_id","export_year","export_month","export_day"],
-  #            compression="snappy",
-  #            enableUpdateCatalog=True,
-  #            transformation_ctx="AmazonS3_node1688108405149",
-  #        )
-  #        
-  #        AmazonS3_node1688108405149.setCatalogInfo(
-  #            catalogDatabase=arg_target_catalog_database_name, catalogTableName=arg_target_catalog_table_name
-  #        )
-  #        AmazonS3_node1688108405149.setFormat("glueparquet")
-  #        AmazonS3_node1688108405149.writeFrame(GoogleBigQueryConnector0242forAWSGlue30_node1)
-#
-  #        max_bookmark_column = GoogleBigQueryConnector0242forAWSGlue30_node1.toDF().select(max(arg_gcp_job_bookmark_keys)).collect()[0][0]
-  #        max_bookmark_column = max_bookmark_column.strftime("%Y-%m-%d %H:%M:%S.%f")
-  #        print(max_bookmark_column)
-  #        putJobBookmarkToDynamoDb(dynamodb_client,arg_dynamodb_bookmark_table_name,arg_job_name,arg_gcp_job_bookmark_keys,max_bookmark_column)
-  #        job.commit()
-  #            '''
-  #            try:
-  #              s3.put_object(Bucket=bucket_name, Key=key, Body=script_content)
-  #              responseData = {'Message': 'Updated Glue Script successfully'}
-  #              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
-  #            except Exception as e:
-  #              cfnresponse.send(event, context, cfnresponse.FAILED, {'Message': 'Failed to upload Glue script'})
-  #    Handler: index.lambda_handler
-  #    Role: !GetAtt LambdaExecutionRole.Arn
-  #    Runtime: python3.8
-  
-  #LambdaExecutionRole:
-  #  Type: AWS::IAM::Role
-  #  Properties:
-  #    AssumeRolePolicyDocument:
-  #      Version: '2012-10-17'
-  #      Statement:
-  #        - Effect: Allow
-  #          Principal:
-  #            Service: lambda.amazonaws.com
-  #          Action: sts:AssumeRole
-  #    Policies:
-  #      - PolicyName: LambdaS3Access
-  #        PolicyDocument:
-  #          Version: '2012-10-17'
-  #          Statement:
-  #            - Effect: Allow
-  #              Action:
-  #                - s3:PutObject
-  #              Resource: !Sub "arn:aws:s3:::${Prefix}-${BucketName}-script/*"
   
   UploadS3ObjectResourceLambdaFunction:
     Type: AWS::Lambda::Function
@@ -1014,7 +845,6 @@ Resources:
           import boto3
           from botocore.exceptions import ClientError
           import datetime as dt
-
 
           args = getResolvedOptions(sys.argv, ['JOB_NAME','gcp_full_table_name', 'gcp_parent_project', 'gcp_materialization_dataset', 'gcp_connection_name','gcp_job_bookmark_keys', 'target_s3_path','target_catalog_database_name', 'target_catalog_table_name','dynamodb_admin_job_table_name'])
 
@@ -1158,21 +988,6 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: '*'
-
-  #LambdaInvokePermission:
-  #  Type: AWS::Lambda::Permission
-  #  Properties:
-  #    FunctionName: !GetAtt UpdateScriptLambdaFunction.Arn
-  #    Action: lambda:InvokeFunction
-  #    Principal: cloudformation.amazonaws.com
-  #    SourceAccount: !Ref AWS::AccountId
-
-  #UpdateScriptOnDeployment:
-  #  Type: Custom::LambdaInvoker
-  #  DependsOn: LambdaInvokePermission
-  #  Properties:
-  #    ServiceToken: !GetAtt UpdateScriptLambdaFunction.Arn
-  #    ScriptBucketName: !Sub ${Prefix}-${BucketName}-script
   
   GlueDatabase:
     Type: AWS::Glue::Database
