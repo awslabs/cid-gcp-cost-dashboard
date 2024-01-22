@@ -151,7 +151,7 @@ Resources:
           gcp_job_bookmark_keys = os.environ.get('GCPJobBookmarkKeys')
           target_catalog_database_name = os.environ.get('TargetCatalogDBName')
           dynamodb_admin_job_table_name = os.environ.get('DynamoDBAdminJobTable')
-          #gcp_pricing_location = os.environ.get('GCPPricingLocation') # FIXME: not used
+          #gcp_pricing_location = os.environ.get('GCPPricingLocation') # FIXME: not used - To Check
           gcp_billing_full_table_names = os.environ.get('GCPFullTableName').split(";")
           gcp_pricing_full_table_name = os.environ.get('GCPPricingFullTableName')
           glue_role = os.environ.get('GlueRoleArn')
@@ -159,6 +159,7 @@ Resources:
           pricing_crawler_name = os.environ.get('PricingCrawlerName')
           billing_target_s3_path = os.environ.get('BillingTargetS3Path')
           pricing_target_s3_path = os.environ.get('PricingTargetS3Path')
+          security_configuration = os.environ.get('SecurityConfiguration')
           
           def create_glue_job_trigger(job_name):
               trigger_name = job_name + "_24_hour_trigger"
@@ -227,36 +228,37 @@ Resources:
                   return f'Job {job_name} already exists.'
               except glue_client.exceptions.EntityNotFoundException:
                   pass # does not exists
-              response = glue_client.create_job(
-                  Name=job_name,
-                  Role=glue_role,
-                  Command={
-                      'Name': 'glueetl',
-                      'ScriptLocation': script_location
-                  },
-                  Connections={'Connections': [gcp_connection_name]},
-                  DefaultArguments={
-                      '--job-bookmark-option': "job-bookmark-disable",
-                      '--enable-auto-scaling': "true",
-                      '--enable-continuous-cloudwatch-log': "true",
-                      '--enable-observability-metrics': "true",
-                      '--enable-metrics': "true",
-                      '--gcp_parent_project': table_project,
-                      '--gcp_full_table_name': table_name,
-                      '--gcp_connection_name': gcp_connection_name,
-                      '--gcp_job_bookmark_keys': gcp_job_bookmark_keys,
-                      '--gcp_materialization_dataset': table_dataset,
-                      '--target_s3_path': target_s3_path,
-                      '--target_catalog_database_name': target_catalog_database_name,
-                      '--target_catalog_table_name': target_s3_path.rstrip('/').split('/')[-1],
-                      '--dynamodb_admin_job_table_name': dynamodb_admin_job_table_name
-                  },
-                  WorkerType="G.1X",
-                  NumberOfWorkers=2,
-                  GlueVersion="4.0"
-              )
-              # FIXE: check the response
-              return f'Job {job_name} created successfully.'
+                  response = glue_client.create_job(
+                      Name=job_name,
+                      Role=glue_role,
+                      Command={
+                          'Name': 'glueetl',
+                          'ScriptLocation': script_location
+                      },
+                      Connections={'Connections': [gcp_connection_name]},
+                      DefaultArguments={
+                          '--job-bookmark-option': "job-bookmark-disable",
+                          '--enable-auto-scaling': "true",
+                          '--enable-continuous-cloudwatch-log': "true",
+                          '--enable-observability-metrics': "true",
+                          '--enable-metrics': "true",
+                          '--gcp_parent_project': table_project,
+                          '--gcp_full_table_name': table_name,
+                          '--gcp_connection_name': gcp_connection_name,
+                          '--gcp_job_bookmark_keys': gcp_job_bookmark_keys,
+                          '--gcp_materialization_dataset': table_dataset,
+                          '--target_s3_path': target_s3_path,
+                          '--target_catalog_database_name': target_catalog_database_name,
+                          '--target_catalog_table_name': target_s3_path.rstrip('/').split('/')[-1],
+                          '--dynamodb_admin_job_table_name': dynamodb_admin_job_table_name
+                          '--security_configuration': security_configuration
+                      },
+                      WorkerType="G.1X",
+                      NumberOfWorkers=2,
+                      GlueVersion="4.0"
+                  )
+                  # FIXE: check the response
+                  return f'Job {job_name} created successfully.'
           
           def delete_glue_job(job_name):
               try:
@@ -362,6 +364,7 @@ Resources:
           GCPPricingLocation: !Ref GCPPricingLocation
           GCPPricingFullTableName: !Ref GCPPricingFullTableName
           GlueRoleArn: !GetAtt GlueRole.Arn
+          SecurityConfiguration: !Ref GlueSecurityConfiguration
           BillingCrawlerName: !Sub "${Prefix}-GCP_Billing_Crawler"
           PricingCrawlerName: !Sub "${Prefix}-GCP_Pricing_Crawler"
 
@@ -402,7 +405,7 @@ Resources:
                 Action:
                   - dynamodb:PutItem
                   - dynamodb:GetItem
-                Resource: !GetAtt DynamoDBAdminJobTable.Arn
+                Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Prefix}-${TargetCatalogDBName}-AdminJobTable"
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
@@ -510,13 +513,13 @@ Resources:
                     - "iam:PassRole"
                   Resource: !GetAtt GlueRole.Arn
                
-  GCPLambdaInvokePermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !GetAtt GCPLambdaFunction.Arn
-      Action: lambda:InvokeFunction
-      Principal: cloudformation.amazonaws.com
-      SourceAccount: !Ref AWS::AccountId
+  #GCPLambdaInvokePermission:
+  #  Type: AWS::Lambda::Permission
+  #  Properties:
+  #    FunctionName: !GetAtt GCPLambdaFunction.Arn
+  #    Action: lambda:InvokeFunction
+  #    Principal: cloudformation.amazonaws.com
+  #    SourceAccount: !Ref AWS::AccountId
 
   GCPLambdaInvoker:
     Type: Custom::LambdaInvoker
@@ -636,10 +639,10 @@ Resources:
   DynamoDBAdminJobTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      #SSESpecification:
-      #  SSEEnabled: true
-      #  KMSMasterKeyId: !GetAtt KMSKey.Arn
-      #  SSEType: KMS
+      SSESpecification:
+        SSEEnabled: true
+        KMSMasterKeyId: !GetAtt KMSKey.Arn
+        SSEType: KMS
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: True
       TableName: !Sub "${Prefix}-${TargetCatalogDBName}-AdminJobTable"
