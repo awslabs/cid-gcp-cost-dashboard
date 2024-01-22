@@ -14,6 +14,8 @@ Metadata:
           - Secret
           - SecretARN
           - KMSOwners
+          - GlueCrontab
+          - CrawlerCrontab
       - 
         Label: 
           default: "Necessary config - DON'T CHANGE"
@@ -56,6 +58,16 @@ Metadata:
       KMSOwners:
         Type: CommaDelimitedList
         Description: ARN of the KMS Owners. !!! Current User is mandatory !!!
+      
+      GlueCrontab:
+        Type: String
+        Description: Time-based schedule for your jobs in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. 
+        Default: "0 4 * * *"
+
+      CrawlerCrontab:
+        Type: String
+        Description: Time-based schedule for your crawlers in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. 
+        Default: "0 5 * * *"
 
       GCPBillingLocation:
         Type: String
@@ -113,6 +125,16 @@ Parameters:
   KMSOwners:
     Type: CommaDelimitedList
     Description: ARN of the KMS Owners. !!! Current User is mandatory !!!
+  
+  GlueCrontab:
+    Type: String
+    Description: Time-based schedule for your jobs in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. 
+    Default: "0 4 * * *"
+
+  CrawlerCrontab:
+    Type: String
+    Description: Time-based schedule for your crawlers in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. 
+    Default: "0 5 * * *"
 
   GCPBillingLocation:
     Type: String
@@ -160,6 +182,8 @@ Resources:
           billing_target_s3_path = os.environ.get('BillingTargetS3Path')
           pricing_target_s3_path = os.environ.get('PricingTargetS3Path')
           security_configuration = os.environ.get('SecurityConfiguration')
+          glue_crontab = os.environ.get('GlueCrontab')
+          crawler_crontab = os.environ.get('CrawlerCrontab')
           
           def create_glue_job_trigger(job_name):
               trigger_name = job_name + "_24_hour_trigger"
@@ -180,7 +204,7 @@ Resources:
                           'JobName': job_name,
                           'Arguments': {}
                       }],
-                      Schedule="cron(0 0 * * ? *)"
+                      Schedule="cron("+glue_crontab+")"
                   )
               print(f'Starting {trigger_name}')
               try:
@@ -212,7 +236,7 @@ Resources:
                           'CrawlerName': crawler_name,
                           'Arguments': {}
                       }],
-                      Schedule="cron(0 1 * * ? *)"
+                      Schedule="cron("+crawler_crontab+")"
                   )
                   print(f'Starting {trigger_name}')
               try:
@@ -250,15 +274,19 @@ Resources:
                           '--target_s3_path': target_s3_path,
                           '--target_catalog_database_name': target_catalog_database_name,
                           '--target_catalog_table_name': target_s3_path.rstrip('/').split('/')[-1],
-                          '--dynamodb_admin_job_table_name': dynamodb_admin_job_table_name
+                          '--dynamodb_admin_job_table_name': dynamodb_admin_job_table_name,
                           '--security_configuration': security_configuration
                       },
                       WorkerType="G.1X",
                       NumberOfWorkers=2,
                       GlueVersion="4.0"
                   )
-                  # FIXE: check the response
-                  return f'Job {job_name} created successfully.'
+                  if response != job_name
+                    glue_client.start_job_run(JobName=job_name)
+                    return f'Job {job_name} created successfully.'
+                  else:
+                    print(response)
+                    return f'Error creating Job {job_name}'
           
           def delete_glue_job(job_name):
               try:
@@ -311,7 +339,7 @@ Resources:
               response = {}
               job_names=[]
           
-              #Create jobs for each billing table
+              #Delete jobs for each billing table
               for table_name in gcp_billing_full_table_names:
                   job_name = f'GcpApp_{table_name}'
                   job_names.append(job_name)
@@ -319,7 +347,7 @@ Resources:
                       job_name=job_name,
                  )
           
-              #Create job for pricing
+              #Delete job for pricing
               job_name = f'GcpApp_{gcp_pricing_full_table_name}'
               job_names.append(job_name)
               response[gcp_pricing_full_table_name] = delete_glue_job(
@@ -351,6 +379,8 @@ Resources:
       FunctionName: !Sub "${Prefix}-GCPGlueGenerator"
       Runtime: python3.12
       Timeout: 60
+      ReservedConcurrentExecutions: 100
+      KmsKeyArn: !GetAtt KMSKey.Arn
       Environment:
         Variables:
           GCPFullTableName: !Join [";", !Ref GCPFullTableName]
@@ -367,6 +397,8 @@ Resources:
           SecurityConfiguration: !Ref GlueSecurityConfiguration
           BillingCrawlerName: !Sub "${Prefix}-GCP_Billing_Crawler"
           PricingCrawlerName: !Sub "${Prefix}-GCP_Pricing_Crawler"
+          GlueCrontab: !Ref GlueCrontab
+          CrawlerCrontab: !Ref CrawlerCrontab
 
   GlueRole:
     Type: AWS::IAM::Role
@@ -523,7 +555,7 @@ Resources:
 
   GCPLambdaInvoker:
     Type: Custom::LambdaInvoker
-    DependsOn: GCPLambdaInvokePermission
+    #DependsOn: GCPLambdaInvokePermission
     Properties:
       ServiceToken: !GetAtt GCPLambdaFunction.Arn
       ScriptBucketName: !Sub ${Prefix}-${BucketName}-script
@@ -532,6 +564,7 @@ Resources:
     Type: "AWS::KMS::Key"
     Properties:
       Description: "GCP CID Dashboard KMS Key"
+      EnableKeyRotation: True
       KeyPolicy:
         Version: '2012-10-17'
         Id: default
@@ -588,11 +621,18 @@ Resources:
               - kms:DescribeKey
             Resource: "*"
       KeyUsage: "ENCRYPT_DECRYPT"
+  
+  GcpKeyAlias:
+      Type: AWS::KMS::Alias
+      Properties:
+        AliasName: !Sub "alias/${Prefix}-gcpkey"
+        TargetKeyId:
+          Ref: KMSKey
 
   GlueSecurityConfiguration:
       Type: AWS::Glue::SecurityConfiguration
       Properties:
-        Name: "GCPGlueSecurityConfiguration"
+        Name: !Sub "${Prefix}-GCPGlueSecurityConfiguration"
         EncryptionConfiguration:
           CloudWatchEncryption: 
             CloudWatchEncryptionMode: SSE-KMS
@@ -682,7 +722,7 @@ Resources:
                   - kms:Encrypt
                   - kms:Decrypt
                 Resource: 
-                  - !GetAtt "arn:aws:s3:::${Prefix}-${BucketName}"
+                  - !Sub "arn:aws:s3:::${Prefix}-${BucketName}"
                   - !Sub "arn:aws:s3:::${Prefix}-${BucketName}/*"
               - Effect: Allow
                 Action:
@@ -721,6 +761,11 @@ Resources:
         BlockPublicPolicy: True
         IgnorePublicAcls: True
         RestrictPublicBuckets: True
+      BucketEncryption:
+          ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              KMSMasterKeyID: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:${Prefix}-gcpkey'
+              SSEAlgorithm: 'aws:kms'
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
   
@@ -940,21 +985,21 @@ Resources:
 
 
           # Script generated for node Amazon S3
-          AmazonS3_node1688108405149 = glueContext.getSink(
+          AmazonS3_node = glueContext.getSink(
               path=arg_target_s3_path,
               connection_type="s3",
               updateBehavior="UPDATE_IN_DATABASE",
               partitionKeys=["billing_account_id","export_year","export_month","export_day"],
               compression="snappy",
               enableUpdateCatalog=True,
-              transformation_ctx="AmazonS3_node1688108405149",
+              transformation_ctx="AmazonS3_node",
           )
           
-          AmazonS3_node1688108405149.setCatalogInfo(
+          AmazonS3_node.setCatalogInfo(
               catalogDatabase=arg_target_catalog_database_name, catalogTableName=arg_target_catalog_table_name
           )
-          AmazonS3_node1688108405149.setFormat("glueparquet")
-          AmazonS3_node1688108405149.writeFrame(GoogleBigQueryConnector0242forAWSGlue30_node1)
+          AmazonS3_node.setFormat("glueparquet")
+          AmazonS3_node.writeFrame(GoogleBigQueryConnector0242forAWSGlue30_node1)
 
           max_bookmark_column = GoogleBigQueryConnector0242forAWSGlue30_node1.toDF().select(max(arg_gcp_job_bookmark_keys)).collect()[0][0]
           max_bookmark_column = max_bookmark_column.strftime("%Y-%m-%d %H:%M:%S.%f")
