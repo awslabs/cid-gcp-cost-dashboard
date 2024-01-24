@@ -15,7 +15,6 @@ Metadata:
           - SecretARN
           - KMSOwners
           - GlueCrontab
-          - CrawlerCrontab
       - 
         Label: 
           default: "Necessary config - DON'T CHANGE"
@@ -62,21 +61,16 @@ Metadata:
       GlueCrontab:
         Type: String
         Description: Time-based schedule for your jobs in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. 
-        Default: "0 4 * * *"
-
-      CrawlerCrontab:
-        Type: String
-        Description: Time-based schedule for your crawlers in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. 
-        Default: "0 5 * * *"
+        Default: "0 4 * * ? *"
 
       GCPBillingLocation:
         Type: String
-        Description: DON'T CHANGE - GCP Billing Location
+        Description: DON'T CHANGE - GCP Billing Location in S3
         Default: gcp_billing_export
 
       GCPPricingLocation:
         Type: String
-        Description: DON'T CHANGE - GCP Job Bookmark Keys
+        Description: DON'T CHANGE - GCP Pricing Location in S3
         Default: gcp_pricing_export
 
       GCPJobBookmarkKeys:
@@ -129,21 +123,16 @@ Parameters:
   GlueCrontab:
     Type: String
     Description: Time-based schedule for your jobs in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. 
-    Default: "0 4 * * *"
-
-  CrawlerCrontab:
-    Type: String
-    Description: Time-based schedule for your crawlers in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. 
-    Default: "0 5 * * *"
+    Default: "0 4 * * ? *"
 
   GCPBillingLocation:
     Type: String
-    Description: DON'T CHANGE - GCP Billing Location
+    Description: DON'T CHANGE - GCP Billing Location in S3
     Default: gcp_billing_export
   
   GCPPricingLocation:
     Type: String
-    Description: DON'T CHANGE - GCP Job Bookmark Keys
+    Description: DON'T CHANGE - GCP Pricing Location in S3
     Default: gcp_pricing_export
 
   GCPJobBookmarkKeys:
@@ -173,7 +162,6 @@ Resources:
           gcp_job_bookmark_keys = os.environ.get('GCPJobBookmarkKeys')
           target_catalog_database_name = os.environ.get('TargetCatalogDBName')
           dynamodb_admin_job_table_name = os.environ.get('DynamoDBAdminJobTable')
-          #gcp_pricing_location = os.environ.get('GCPPricingLocation') # FIXME: not used - To Check
           gcp_billing_full_table_names = os.environ.get('GCPFullTableName').split(";")
           gcp_pricing_full_table_name = os.environ.get('GCPPricingFullTableName')
           glue_role = os.environ.get('GlueRoleArn')
@@ -183,66 +171,116 @@ Resources:
           pricing_target_s3_path = os.environ.get('PricingTargetS3Path')
           security_configuration = os.environ.get('SecurityConfiguration')
           glue_crontab = os.environ.get('GlueCrontab')
-          crawler_crontab = os.environ.get('CrawlerCrontab')
+          glue_job_trigger = os.environ.get('GlueJobTrigger')
+          glue_crawler_trigger = os.environ.get('GlueCrawlerTrigger')
+          glue_workflow = os.environ.get('GlueWorkflow')
           
-          def create_glue_job_trigger(job_name):
-              trigger_name = job_name + "_24_hour_trigger"
-          
-              # Check if the triggers already exist
-              try:
-                  glue_client.get_trigger(Name=trigger_name)
-                  print(f'trigger {trigger_name} exists')
-                  return
-              except glue_client.exceptions.EntityNotFoundException:
-                  # not found
-                  print(f'Creating {trigger_name}')
-                  glue_client.create_trigger(
-                      Name=trigger_name,
-                      Description="Trigger for running " + job_name + " every 24 hours",
-                      Type='SCHEDULED',
-                      Actions=[{
+          def create_glue_job_trigger(job_names):
+              trigger_name = glue_job_trigger
+              actions = []
+              for job_name in job_names:
+                action = {
                           'JobName': job_name,
                           'Arguments': {}
-                      }],
-                      Schedule="cron("+glue_crontab+")"
-                  )
-              print(f'Starting {trigger_name}')
-              try:
-                  glue_client.start_trigger(Name=trigger_name)
-              except Exception as exc:
-                  print(f'ERROR triggering {trigger_name}: {exc}')
-          
-          
-          def create_glue_crawler_trigger(crawler_name):
-              trigger_name = crawler_name + "_crawler_24_hour_trigger"
-          
+                }
+                actions.append(action)
               # Check if the triggers already exist
-              #crawler_trigger_exists = any(trigger['Name'] == trigger_name for trigger in glue_client.get_triggers()['Triggers'])
-              #
-              #if crawler_trigger_exists:
-              #    print(f'trigger {crawler_name} exists')
-              #    return
               try:
                   glue_client.get_trigger(Name=trigger_name)
-                  print(f'trigger {trigger_name} exists')
+                  print(f'trigger {trigger_name} exists, updating..')
+                  try:
+                      glue_client.update_trigger(
+                          Name=trigger_name,
+                          TriggerUpdate={
+                              'Name': trigger_name,
+                              'Description': "Trigger for running GCP Glue Jobs every 24 hours",
+                              'Actions': actions,
+                              #'WorkflowName': glue_workflow,
+                              'Schedule': "cron("+glue_crontab+")"
+                          }
+                      )
+                  except Exception as exc:
+                      print(f'ERROR Updating {trigger_name}: {exc}')
                   return
               except glue_client.exceptions.EntityNotFoundException:
                   print(f'Creating {trigger_name}')
-                  glue_client.create_trigger(
-                      Name=trigger_name,
-                      Description="Trigger for running " + crawler_name + " every 24 hours",
-                      Type='SCHEDULED',
-                      Actions=[{
-                          'CrawlerName': crawler_name,
-                          'Arguments': {}
-                      }],
-                      Schedule="cron("+crawler_crontab+")"
-                  )
-                  print(f'Starting {trigger_name}')
+                  try:
+                      glue_client.create_trigger(
+                          Name=trigger_name,
+                          #Description="Trigger for running " + job_name + " every 24 hours",
+                          Description="Trigger for running GCP Glue Job every 24 hours",
+                          Type='SCHEDULED',
+                          Actions=actions,
+                          StartOnCreation=True,
+                          WorkflowName=glue_workflow,
+                          Schedule="cron("+glue_crontab+")"
+                      )
+                  except Exception as exc:
+                      print(f'ERROR Creating {trigger_name}: {exc}')
+          
+          def create_glue_crawler_trigger(job_names,billing_crawler_name,pricing_crawler_name):
+              trigger_name = glue_crawler_trigger
+              conditions = []
+              for job_name in job_names:
+                condition = {
+                    'LogicalOperator': "EQUALS",
+                    'JobName': job_name,
+                    'State': "SUCCEEDED"
+                }
+                conditions.append(condition)
               try:
-                  glue_client.start_trigger(Name=trigger_name)
-              except Exception as exc:
-                  print(f'ERROR triggering {trigger_name}: {exc}')     
+                  # Check if the triggers already exist
+                  glue_client.get_trigger(Name=trigger_name)
+                  print(f'trigger {trigger_name} exists, updating..')
+                  try: 
+                      glue_client.update_trigger(
+                          Name=trigger_name,
+                          TriggerUpdate={
+                              'Name': trigger_name,
+                              'Description': "Trigger for running " + billing_crawler_name + " and " + pricing_crawler_name + " conditionally",
+                              'Predicate': {
+                                'Logical':'AND',
+                                'Conditions': conditions
+                              },
+                              'Actions': [{
+                                  'CrawlerName': billing_crawler_name,
+                                  'Arguments': {}
+                                },
+                                {
+                                  'CrawlerName': pricing_crawler_name,
+                                  'Arguments': {}
+                                }
+                              ]
+                          }
+                      )
+                  except Exception as exc:
+                    print(f'ERROR creating trigger {trigger_name}: {exc}')
+                  return
+              except glue_client.exceptions.EntityNotFoundException:
+                  print(f'Creating {trigger_name}')
+                  try:
+                      glue_client.create_trigger(
+                          Name=trigger_name,
+                          Description="Trigger for running " + billing_crawler_name + " and " + pricing_crawler_name + " conditionally",
+                          Type='CONDITIONAL',
+                          WorkflowName=glue_workflow,
+                          StartOnCreation=True,
+                          Predicate={
+                            'Logical':'AND',
+                            'Conditions': conditions
+                          },
+                          Actions=[{
+                              'CrawlerName': billing_crawler_name,
+                              'Arguments': {}
+                            },
+                            {
+                              'CrawlerName': pricing_crawler_name,
+                              'Arguments': {}
+                            }
+                          ]
+                      )
+                  except Exception as exc:
+                    print(f'ERROR creating trigger {trigger_name}: {exc}')     
           
           def create_glue_job(job_name, table_name, target_s3_path):
               table_project, table_dataset, table_id = table_name.split('.')
@@ -251,7 +289,6 @@ Resources:
                   glue_client.get_job(JobName=job_name)
                   return f'Job {job_name} already exists.'
               except glue_client.exceptions.EntityNotFoundException:
-                  pass # does not exists
                   response = glue_client.create_job(
                       Name=job_name,
                       Role=glue_role,
@@ -274,18 +311,17 @@ Resources:
                           '--target_s3_path': target_s3_path,
                           '--target_catalog_database_name': target_catalog_database_name,
                           '--target_catalog_table_name': target_s3_path.rstrip('/').split('/')[-1],
-                          '--dynamodb_admin_job_table_name': dynamodb_admin_job_table_name,
-                          '--security_configuration': security_configuration
+                          '--dynamodb_admin_job_table_name': dynamodb_admin_job_table_name
                       },
+                      SecurityConfiguration=security_configuration,
                       WorkerType="G.1X",
                       NumberOfWorkers=2,
                       GlueVersion="4.0"
                   )
-                  if response != job_name
-                    glue_client.start_job_run(JobName=job_name)
+                  if response != job_name:
+                    #glue_client.start_job_run(JobName=job_name)
                     return f'Job {job_name} created successfully.'
                   else:
-                    print(response)
                     return f'Error creating Job {job_name}'
           
           def delete_glue_job(job_name):
@@ -297,7 +333,7 @@ Resources:
           
           def delete_trigger(trigger_name):
               try:
-                  glue_client.delete_Trigger(Name=trigger_name)
+                  glue_client.delete_trigger(Name=trigger_name)
                   return f'deleting {trigger_name}'
               except Exception as exc:
                   return f'Error on deleting {trigger_name} : {exc}'
@@ -311,6 +347,7 @@ Resources:
               for table_name in gcp_billing_full_table_names:
                   job_name = f'GcpApp_{table_name}'
                   job_names.append(job_name)
+                  print(f'Creating Glue Job {job_name} ..')
                   response[table_name] = create_glue_job(
                       job_name=job_name,
                       table_name=table_name,
@@ -320,6 +357,7 @@ Resources:
               #Create job for pricing
               job_name = f'GcpApp_{gcp_pricing_full_table_name}'
               job_names.append(job_name)
+              print(f'Creating Glue Job {job_name} ..')
               response[gcp_pricing_full_table_name] = create_glue_job(
                   job_name=job_name,
                   table_name=gcp_pricing_full_table_name,
@@ -327,12 +365,12 @@ Resources:
               )
           
               # Create triggers for jobs and crawlers
-              for job_name in job_names:
-                  print(f"Updating triggers for {job_name}..")
-                  create_glue_job_trigger(job_name)
-              for crawler_name in (billing_crawler_name, pricing_crawler_name):
-                  print(f"Updating triggers for {crawler_name}..")
-                  create_glue_crawler_trigger(crawler_name)
+              print(f"Updating triggers for CID GCP Glue Jobs..")
+              create_glue_job_trigger(job_names)
+              print(f"Updating triggers for {billing_crawler_name} and {pricing_crawler_name}..")
+              create_glue_crawler_trigger(job_names,billing_crawler_name,pricing_crawler_name)
+              print(f"Start run of the workflow: {glue_workflow}")
+              glue_client.start_workflow_run(Name=glue_workflow)
               return response
           
           def on_delete():
@@ -353,12 +391,11 @@ Resources:
               response[gcp_pricing_full_table_name] = delete_glue_job(
                   job_name=job_name,
               )
-              for job_name in job_names:
-                  print(f"Updating triggers for {job_name}..")
-                  delete_trigger(job_name + '_24_hour_trigger')
-              for crawler_name in (billing_crawler_name, pricing_crawler_name):
-                  print(f"Updating triggers for {crawler_name}..")
-                  delete_trigger(crawler_name + '_crawler_24_hour_trigger')
+
+              #Delete triggers
+              response[glue_job_trigger]=delete_trigger(glue_job_trigger)
+              response[glue_crawler_trigger]=delete_trigger(glue_crawler_trigger)
+              
               return response
           
           def lambda_handler(event, context):
@@ -397,8 +434,10 @@ Resources:
           SecurityConfiguration: !Ref GlueSecurityConfiguration
           BillingCrawlerName: !Sub "${Prefix}-GCP_Billing_Crawler"
           PricingCrawlerName: !Sub "${Prefix}-GCP_Pricing_Crawler"
+          GlueJobTrigger: !Sub "${Prefix}-Glue_Jobs_Trigger"
+          GlueCrawlerTrigger: !Sub "${Prefix}-Glue_Crawlers_Trigger"
           GlueCrontab: !Ref GlueCrontab
-          CrawlerCrontab: !Ref CrawlerCrontab
+          GlueWorkflow: !Sub ${Prefix}-workflow
 
   GlueRole:
     Type: AWS::IAM::Role
@@ -411,7 +450,7 @@ Resources:
               Service: glue.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: GlueS3Access
+        - PolicyName: !Sub ${Prefix}-job-role
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -529,6 +568,8 @@ Resources:
                     - glue:GetSecurityConfiguration
                     - glue:UpdateJob
                     - glue:DeleteJob
+                    - glue:StartJob
+                    - glue:StartJobRun
                     - glue:CreateTable
                     - glue:UpdateTable
                     - glue:UpdateDatabase
@@ -536,35 +577,59 @@ Resources:
                     - glue:BatchCreatePartition
                     - glue:BatchUpdatePartition
                     - glue:CreateTrigger
+                    - glue:UpdateTrigger
+                    - glue:DeleteTrigger
                     - glue:StartTrigger
                     - glue:GetTrigger
                     - glue:GetTriggers
+                    - glue:StartWorkflowRun
+                    - glue:ListWorkflows
+                    - glue:GetWorkflow
+                    - glue:GetWorkflowRun
+                    - glue:GetWorkflowRunProperties
+                    - glue:GetWorkflowRuns
                   Resource: '*'
                 - Effect: Allow
                   Action:
                     - "iam:PassRole"
                   Resource: !GetAtt GlueRole.Arn
-               
-  #GCPLambdaInvokePermission:
-  #  Type: AWS::Lambda::Permission
-  #  Properties:
-  #    FunctionName: !GetAtt GCPLambdaFunction.Arn
-  #    Action: lambda:InvokeFunction
-  #    Principal: cloudformation.amazonaws.com
-  #    SourceAccount: !Ref AWS::AccountId
 
   GCPLambdaInvoker:
     Type: Custom::LambdaInvoker
-    #DependsOn: GCPLambdaInvokePermission
     Properties:
       ServiceToken: !GetAtt GCPLambdaFunction.Arn
       ScriptBucketName: !Sub ${Prefix}-${BucketName}-script
+      GCPFullTableName: !Join [";", !Ref GCPFullTableName]
+      ScriptLocation: !Sub "s3://${Prefix}-${BucketName}-script/glue_script.py"         
+      GCPConnectionName: !Ref GCPConnectionName
+      GCPJobBookmarkKeys: !Ref GCPJobBookmarkKeys
+      BillingTargetS3Path: !Sub "s3://${Prefix}-${BucketName}/${GCPBillingLocation}/"
+      PricingTargetS3Path: !Sub "s3://${Prefix}-${BucketName}/${GCPPricingLocation}/"
+      TargetCatalogDBName: !Ref TargetCatalogDBName
+      DynamoDBAdminJobTable: !Select [1, !Split ['/', !GetAtt DynamoDBAdminJobTable.Arn]]
+      GCPPricingLocation: !Ref GCPPricingLocation
+      GCPPricingFullTableName: !Ref GCPPricingFullTableName
+      GlueRoleArn: !GetAtt GlueRole.Arn
+      SecurityConfiguration: !Ref GlueSecurityConfiguration
+      BillingCrawlerName: !Sub "${Prefix}-GCP_Billing_Crawler"
+      PricingCrawlerName: !Sub "${Prefix}-GCP_Pricing_Crawler"
+      GlueJobTrigger: !Sub "${Prefix}-Glue_Jobs_Trigger"
+      CrawlerTrigger: !Sub "${Prefix}-Glue_Crawlers_Trigger"
+      GlueCrontab: !Ref GlueCrontab
+      GlueWorkflow: !Sub ${Prefix}-workflow
+
+  GlueWorkflow:
+    Type: AWS::Glue::Workflow
+    Properties:
+      Description: "Glue Workflow to manage CID GCP Glue Jobs and Crawlers"
+      MaxConcurrentRuns: 100
+      Name: !Sub ${Prefix}-workflow
 
   KMSKey:
     Type: "AWS::KMS::Key"
     Properties:
       Description: "GCP CID Dashboard KMS Key"
-      EnableKeyRotation: True
+      #EnableKeyRotation: True # Enable this for strict regulatory requirements
       KeyPolicy:
         Version: '2012-10-17'
         Id: default
@@ -764,7 +829,7 @@ Resources:
       BucketEncryption:
           ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
-              KMSMasterKeyID: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:${Prefix}-gcpkey'
+              KMSMasterKeyID: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::AccountId}:alias/${Prefix}-gcpkey'
               SSEAlgorithm: 'aws:kms'
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
@@ -874,6 +939,7 @@ Resources:
       Handler: index.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Runtime: python3.12
+      Timeout: 60
 
   UploadScriptOnDeployment:
     Type: Custom::UploadS3ObjectResource
@@ -1029,6 +1095,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:PutObject
+                  - s3:DeleteObject
                 Resource: !Sub "arn:aws:s3:::${Prefix}-${BucketName}-script/*"
               - Effect: Allow
                 Action:
