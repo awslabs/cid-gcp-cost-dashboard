@@ -939,6 +939,7 @@ Resources:
       Handler: index.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Runtime: python3.12
+      ReservedConcurrentExecutions: 100
       Timeout: 60
 
   UploadScriptOnDeployment:
@@ -1075,7 +1076,6 @@ Resources:
       Handler: index.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Runtime: python3.12
-      ReservedConcurrentExecutions: 100
   
   LambdaExecutionRole:
     Type: AWS::IAM::Role
