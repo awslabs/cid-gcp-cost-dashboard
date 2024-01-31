@@ -327,6 +327,68 @@ datasets:
     schedules:
     - default
 views:
+  gcp_currency:
+    data: |-
+      CREATE OR REPLACE VIEW "gcp_currency" AS 
+      SELECT
+        currency
+      , COALESCE(symbol, currency) symbol
+      FROM
+        (
+        WITH
+          char_map AS (
+            SELECT
+              trigram
+            , symbol
+            FROM
+              (
+              VALUES 
+                ROW ('EUR', U&'\20AC')
+              , ROW ('NOK', 'kr')
+              , ROW ('BRL', 'R$')
+              , ROW ('CAD', 'C$')
+              , ROW ('CZK', U&'K\010D')
+              , ROW ('DKK', 'kr')
+              , ROW ('HKD', 'HK$')
+              , ROW ('INR', U&'\20B9')
+              , ROW ('IDR', 'Rp')
+              , ROW ('ILS', U&'\20AA')
+              , ROW ('JPY', U&'\00A5')
+              , ROW ('CHF', 'CHF')
+              , ROW ('MYR', 'RM')
+              , ROW ('MXN', '$')
+              , ROW ('NZD', '$')
+              , ROW ('PLN', U&'z\0142')
+              , ROW ('RUB', U&'\20BD')
+              , ROW ('SGD', 'S$')
+              , ROW ('KRW', U&'\20A9')
+              , ROW ('SEK', 'kr')
+              , ROW ('TWD', 'NT$')
+              , ROW ('THB', U&'\0E3F')
+              , ROW ('TRY', U&'\20BA')
+              , ROW ('USD', '$')
+              , ROW ('GBP', U&'\00A3')
+              , ROW ('VND', U&'\20AB')
+            )  currency_data (trigram, symbol)
+        ) 
+        SELECT *
+        FROM
+          ((
+      (
+              SELECT DISTINCT currency
+              FROM
+                "gcp_billing_export" gcp
+              LIMIT 1
+            ) UNION ALL (
+              SELECT *
+              FROM
+                (
+      VALUES 
+                    ROW ('USD')
+              )  ignored_table_name (currency)
+            )    )  list
+        LEFT JOIN char_map cm ON (cm.trigram = list.currency))
+      ) 
   gcp_current_pricing:
     data: |-
       CREATE OR REPLACE VIEW ${athena_database_name}.gcp_current_pricing AS
