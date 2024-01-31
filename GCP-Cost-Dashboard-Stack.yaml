@@ -15,6 +15,7 @@ Metadata:
           - SecretARN
           - KMSOwners
           - GlueCrontab
+          - StartDate
       - 
         Label: 
           default: "Necessary config - DON'T CHANGE"
@@ -62,6 +63,10 @@ Metadata:
         Type: String
         Description: Time-based schedule for your jobs in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. 
         Default: "0 4 * * ? *"
+      
+      StartDate:
+        Type: String
+        Description: 'Start date for data retrieval, leave empty to retrieve all. Format: YYYY-MM-DD HH:MM:SS'
 
       GCPBillingLocation:
         Type: String
@@ -124,6 +129,11 @@ Parameters:
     Type: String
     Description: Time-based schedule for your jobs in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. 
     Default: "0 4 * * ? *"
+  
+  StartDate:
+    Type: String
+    Description: 'Start date for data retrieval, leave empty to retrieve all. Format: YYYY-MM-DD HH:MM:SS'
+    AllowedPattern: "^(?:\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})?$"
 
   GCPBillingLocation:
     Type: String
@@ -144,6 +154,9 @@ Parameters:
     Type: String
     Description: DON'T CHANGE - Target Catalog Database Name
     Default: gcpapp_db
+
+Conditions:
+  StartDateNotEmpty: !Not [!Equals [!Ref StartDate, '']]
 
 Resources:
   GCPLambdaFunction:
@@ -667,6 +680,7 @@ Resources:
                 - !GetAtt GlueRole.Arn
                 - !GetAtt GcpBillingCrawlerRole.Arn
                 - !GetAtt LambdaExecutionRole.Arn
+                - !GetAtt PutItemLambdaRole.Arn
             Action:
               - kms:Encrypt
               - kms:Decrypt
@@ -758,6 +772,122 @@ Resources:
         - AttributeName: "job_id"
           KeyType: "HASH"
       BillingMode: PAY_PER_REQUEST
+
+  PutItemLambdaRole:
+    Type: 'AWS::IAM::Role'
+    Condition: StartDateNotEmpty
+    Properties:
+      RoleName: 'PutItemLambdaRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service: 'lambda.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'DynamoDBAccessPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'dynamodb:PutItem'
+                  - 'dynamodb:GetItem'
+                  - 'dynamodb:UpdateItem'
+                Resource:
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${Prefix}-${TargetCatalogDBName}-AdminJobTable"
+        - PolicyName: 'PutItemLambdaExecutionPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'logs:CreateLogStream'
+                  - 'logs:CreateLogGroup'
+                  - 'logs:PutLogEvents'
+                  - 'kms:Decrypt'
+                Resource:
+                  - "*"
+
+  PutItemLambdaFunction:
+    Type: 'AWS::Lambda::Function'
+    Condition: StartDateNotEmpty
+    Properties:
+      Handler: 'index.lambda_handler'
+      Role: !GetAtt PutItemLambdaRole.Arn
+      FunctionName: 'PutItemLambdaFunction'
+      Runtime: 'python3.12'
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref DynamoDBAdminJobTable
+          EXPORT_COLUMN_NAME: 'job_bookmark_column'
+          EXPORT_VALUE: !Ref GCPJobBookmarkKeys
+          VALUE_COLUMN_NAME: 'job_bookmark_value'
+          VALUE: !Ref StartDate
+          BILLING_VALUE: !Join [",", !Ref GCPFullTableName]
+          PRICING_VALUE: !Ref GCPPricingFullTableName
+      Code:
+        ZipFile: |
+          import os
+          import boto3
+          import cfnresponse
+
+          table_name = os.environ.get('TABLE_NAME')
+          export_column_name = os.environ.get('EXPORT_COLUMN_NAME')
+          export_value = os.environ.get('EXPORT_VALUE')
+          value_column_name = os.environ.get('VALUE_COLUMN_NAME')
+          start_date = os.environ.get('VALUE')
+          billing_value = os.environ.get('BILLING_VALUE').split(",")
+          pricing_value = os.environ.get('PRICING_VALUE')
+          
+
+          def put_item_in_dynamodb(table, column_name, value):
+              job = f'GcpApp_{value}'
+              try:
+                  response = table.put_item(
+                      Item={
+                          'job_id': job,
+                          export_column_name: export_value,
+                          value_column_name: start_date
+                      }
+                  )
+                  print("PutItem succeeded:", response)
+                  return True, 'Item added successfully'
+              except Exception as e:
+                  print("Error putting item:", str(e))
+                  return False, 'Error adding item to DynamoDB'
+
+          def lambda_handler(event, context):
+              dynamodb = boto3.resource('dynamodb')
+              error_messages=[]
+              success=True
+
+              table = dynamodb.Table(table_name) if table_name else None
+
+              for value in billing_value:
+                current_success, current_message = put_item_in_dynamodb(table, export_column_name, value)
+                if not current_success:
+                    success = False
+                    error_messages.append(current_message)
+              
+              current_success, current_message = put_item_in_dynamodb(table, export_column_name, pricing_value)
+              if not current_success:
+                  success = False
+                  error_messages.append(current_message)
+
+              if success:
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, 'Items added successfully')
+              else:
+                  error_message = ', '.join(error_messages)
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, error_message)
+      Timeout: 60
+
+  PutItemIfDate:
+    Condition: StartDateNotEmpty
+    Type: Custom::PutItemLambdaFunction
+    Properties:
+      ServiceToken: !GetAtt PutItemLambdaFunction.Arn
 
   GcpBillingCrawlerRole:
     Type: AWS::IAM::Role
@@ -983,7 +1113,7 @@ Resources:
           def getJobBookmarkFromDynamoDb(dynamodb_client,dynamodb_bookmark_table_name,glue_job_name):
               response = dynamodb_client.get_item(TableName=dynamodb_bookmark_table_name, Key={'job_id':{'S':str(glue_job_name)}})
               if 'Item' in response:
-                  job_bookmark = response['Item']['jon_bookmark_value']['S']
+                  job_bookmark = response['Item']['job_bookmark_value']['S']
                   return job_bookmark
               else:
                   return '1900-01-01 00:00:00.001'
@@ -991,8 +1121,8 @@ Resources:
           def putJobBookmarkToDynamoDb(dynamodb_client,dynamodb_bookmark_table_name,glue_job_name,arg_gcp_job_bookmark_keys,bookmark_value):
               dyn_event = {}
               dyn_event["job_id"] = {'S':str(glue_job_name)}
-              dyn_event["jon_bookmark_column"] = {'S':str(arg_gcp_job_bookmark_keys)}
-              dyn_event["jon_bookmark_value"] = {'S':str(bookmark_value)}
+              dyn_event["job_bookmark_column"] = {'S':str(arg_gcp_job_bookmark_keys)}
+              dyn_event["job_bookmark_value"] = {'S':str(bookmark_value)}
               dyn_event["timestamp"] = {'S':str(dt.datetime.utcnow().timestamp()*1000)}
               try:
                     ingest_metadata = dynamodb_client.put_item(TableName=dynamodb_bookmark_table_name, Item=dyn_event)
