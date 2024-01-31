@@ -61,7 +61,7 @@ Metadata:
       
       GlueCrontab:
         Type: String
-        Description: Time-based schedule for your jobs in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. 
+        Description: "Time-based schedule for your jobs in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. For more info check: https://docs.aws.amazon.com/glue/latest/dg/monitor-data-warehouse-schedule.html"
         Default: "0 4 * * ? *"
       
       StartDate:
@@ -128,7 +128,7 @@ Parameters:
   
   GlueCrontab:
     Type: String
-    Description: Time-based schedule for your jobs in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. 
+    Description: "Time-based schedule for your jobs in AWS Glue. The definition of these schedules uses the Unix-like cron syntax. For more info check: https://docs.aws.amazon.com/glue/latest/dg/monitor-data-warehouse-schedule.html"
     Default: "0 4 * * ? *"
   
   StartDate:
