@@ -67,6 +67,7 @@ Metadata:
       StartDate:
         Type: String
         Description: 'Start date for data retrieval, leave empty to retrieve all. Format: YYYY-MM-DD HH:MM:SS'
+        Default: "2024-01-01 00:00:00"
 
       GCPBillingLocation:
         Type: String
@@ -134,6 +135,7 @@ Parameters:
     Type: String
     Description: 'Start date for data retrieval, leave empty to retrieve all. Format: YYYY-MM-DD HH:MM:SS'
     AllowedPattern: "^(?:\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})?$"
+    Default: "2024-01-01 00:00:00"
 
   GCPBillingLocation:
     Type: String
