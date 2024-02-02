@@ -27,10 +27,6 @@ This guide explores the newly announced managed connector for Google BigQuery an
 
 - Video to create the secret: 1:54-2:38 https://youtu.be/n6fkX5LpEYY?t=114
 
-##### 4. Create a KMS Key: 
-- How to create a Key: https://docs.aws.amazon.com/kms/latest/developerguide/create-keys.html#create-symmetric-cmk
-- Be sure to grant usage permission to AWS Glue service
-
 
   
 
@@ -41,7 +37,6 @@ At the end of prerequisites, you should have the following values:
 |1 or more BigQuery billing table|`project.dataset.gcp_billing_export_v1_BILLING_ACCOUNT_ID`|
 |1 or more BigQuery pricing table|`project.dataset.cloud_pricing_export`|
 |1 Secret in AWS with json key of GCP SA stored in base64 with credentials as key|`bigquery_credentials`|
-|1 KMS Key that Glue can use|`gcp-kms-key`|
 
 
 
@@ -86,6 +81,4 @@ https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/s
 
 1. On cloudshell install cid with command: `pip3 install -U cid-cmd`
 
-2. Upload `GCP-Cost-Dashboard.yaml` to your cloudshell.
-
-3. Launch command: `cid-cmd deploy --resources GCP-Cost-Dashboard.yaml`
+2. Launch command: `cid-cmd deploy --resources https://github.com/awslabs/cid-gcp-cost-dashboard/raw/main/GCP-Cost-Dashboard.yml --dasbhoard-id XXXX`
