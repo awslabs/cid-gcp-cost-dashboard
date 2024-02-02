@@ -3,6 +3,8 @@ Current status: `ETA Program`
 
 This guide explores the newly announced managed connector for Google BigQuery and demonstrates how to build a modern ETL pipeline for GCP Cost with AWS Glue Studio without writing code.
 
+![gcp-architecture.png](/images/gcp-architecture.png)
+
 
 ## 	Prerequisites
 
@@ -44,7 +46,7 @@ At the end of prerequisites, you should have the following values:
 
 ## Infrastructure Deployment Guide
 
-##### 1. Open Cloudformation in your AWS console, in your CID account.
+##### 1. Open Cloudformation in your AWS console, in your CID account, or [Click Here](https://eu-central-1.console.aws.amazon.com/cloudformation/home?region=eu-central-1#/stacks/create/review?templateURL=https://github.com/https://github.com/awslabs/cid-gcp-cost-dashboard/GCP-Cost-Dashboard-Stack.yml) for complete Step1&2.
 
 https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks?filteringText=&filteringStatus=active&viewNested=true
 
@@ -57,15 +59,23 @@ https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/s
 
 - `BucketName` => a bucket to store exctracted data. Provide a name based on your naming convention.
 
-- `GCPFullTableName` => this is a COMMADELIMITEDLIST type, and should includes your billing export tables ID delimited by a “,”. example: value1,value2. To retrieve your tables ID, just select the three dots on the right of a table and click “Copy ID”.
+- `ScriptBucketName` => a bucket to store glue job code. Provide a name based on your naming convention.
 
-- `GCPPricingFullTableName` => your pricing table id. To retrieve your tables ID, just select the three dots on the right of a table and click “Copy ID”.
+- `GCPFullTableName` => this is a COMMADELIMITEDLIST type, and should includes your billing export tables ID delimited by a “,”. 
+
+    example: value1,value2. to retrieve your table ID, just select the three dots on the right of a table and click “Copy ID”.
+
+- `GCPPricingFullTableName` => your pricing table id. to retrieve your table ID, just select the three dots on the right of a table and click “Copy ID”.
 
 - `GCPConnectionName` => a name for the connection. Default can be good or adapt based on your naming convention needs.
 
-- `KMSKeyGCP` => ARN of the KMS Key previously created
+- `KMSOwners` => List of ARNs of Owners of the KMS key that will be created.
 
-- `GCPBillingLocation`, `GCPPricingLocation`, `GCPJobBookmarksKeys` and `TargetCatalogDBName` are reserved and must not be changed.
+- `GlueCrontab` => Time-based schedule for your jobs in AWS Glue. The definition of these schedules uses the Unix-like cronsyntax. For more info check: https://docs.aws.amazon.com/glue/latest/dg/monitor-data-warehouse-schedule.html
+
+- `StartDate` => Start date for data retrieval, leave empty to retrieve all. Format: YYYY-MM-DD HH:MM:SS
+
+- `GCPBillingLocation`, GCPPricingLocation, GCPJobBookmarksKeys and TargetCatalogDBName are reserved and must not be changed. 
 
 ##### 5. Click on Next until completing the form.
 
@@ -73,12 +83,10 @@ https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/s
 
 ##### 7. Test the import:
 
-- Go on your newly created Glue Jobs and **run** them to start an import.
-
-- Wait until completes.
+- Glue Jobs will automatically start once they're created. Check your Glue Jobs results and wait until all Crawlers are completed before proceeding with dashboard installation, otherwise will fail due to missing tables in Athena.
 
 ## Dashboards Deployment Guide
 
 1. On cloudshell install cid with command: `pip3 install -U cid-cmd`
 
-2. Launch command: `cid-cmd deploy --resources https://github.com/awslabs/cid-gcp-cost-dashboard/raw/main/GCP-Cost-Dashboard.yml --dasbhoard-id XXXX`
+2. Launch command: `cid-cmd deploy --resources https://github.com/awslabs/cid-gcp-cost-dashboard/raw/main/GCP-Cost-Dashboard.yml --dasbhoard-id gcp-cost-dashboard`
