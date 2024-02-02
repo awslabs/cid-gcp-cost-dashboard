@@ -1,4 +1,4 @@
-# Visalisation of GCP Costs in QuickSight Dashboard
+# Visualisation of GCP Costs in QuickSight Dashboard
 Current status: `ETA Program`
 
 This guide explores the newly announced managed connector for Google BigQuery and demonstrates how to build a modern ETL pipeline for GCP Cost with AWS Glue Studio without writing code.
