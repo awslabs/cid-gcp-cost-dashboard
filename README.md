@@ -85,8 +85,16 @@ https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/s
 
 - Glue Jobs will automatically start once they're created. Check your Glue Jobs results and wait until all Crawlers are completed before proceeding with dashboard installation, otherwise will fail due to missing tables in Athena.
 
-## Dashboards Deployment Guide
+## Dashboards Deployment
 
-1. On cloudshell install cid with command: `pip3 install -U cid-cmd`
-
-2. Launch command: `cid-cmd deploy --resources https://github.com/awslabs/cid-gcp-cost-dashboard/raw/main/GCP-Cost-Dashboard.yml --dasbhoard-id gcp-cost-dashboard`
+1. On CloudShell install cid with command: 
+    ```bash
+    pip3 install -U cid-cmd
+    ```
+2. Launch deploy command with parameters:
+    ```bash
+    cid-cmd deploy \
+          --resources https://github.com/awslabs/cid-gcp-cost-dashboard/raw/mainline/GCP-Cost-Dashboard.yaml \
+          --dasbhoard-id gcp-cost-dashboard
+    ```
+3. You can navigate to dashboards in QuickSight once deplyment is finished. You might need to adjust permissions on the role that QuickSight uses to access S3 and Athena.
