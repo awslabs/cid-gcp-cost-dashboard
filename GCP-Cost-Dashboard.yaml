@@ -7,8 +7,8 @@ dashboards:
     name: 'GCP Cost Dashboard '
     dashboardId: gcp-cost-dashboard
     templateId: gcp-cost-dashboard
-    sourceAccountId: '905125075217'
-    region: eu-west-1
+    sourceAccountId: '223485597511'
+    region: us-east-1
 datasets:
   gcp_currency:
     data:
