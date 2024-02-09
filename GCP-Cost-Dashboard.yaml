@@ -7,8 +7,6 @@ dashboards:
     name: 'GCP Cost Dashboard '
     dashboardId: gcp-cost-dashboard
     templateId: gcp-cost-dashboard
-    sourceAccountId: '905125075217'
-    region: eu-west-1
 datasets:
   gcp_currency:
     data:
@@ -444,12 +442,12 @@ views:
       , location.country location_country
       , usage.pricing_unit usage_pricing_unit
       , usage.unit usage_unit
-      , 'json_format(CAST(labels AS JSON))' labels
+      , '[]' labels
       , TRY(labels['gke_cluster_name']) labels_gke_cluster_name
       , currency currency
       , currency_conversion_rate currency_conversion_rate
       , cost_type cost_type
-      , 'json_format(CAST(credits AS JSON))' credits
+      , '[]' credits
       , TRY(adjustment_info.id) adjustment_info_id
       , TRY(adjustment_info.description) adjustment_info_description
       , TRY(adjustment_info.mode) adjustment_info_mode
