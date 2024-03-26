@@ -5,6 +5,9 @@ This guide explores the newly announced managed connector for Google BigQuery an
 
 ![gcp-architecture.png](/images/gcp-architecture.png)
 
+* Detailed instructions in AWS Workshop: https://catalog.workshops.aws/cid-gcp-cost-dashboard/
+* Demo Dashboard: https://cid.workshops.aws.dev/demo/?dashboard=gcp-cost-dashboard
+
 
 ## 	Prerequisites
 
@@ -98,3 +101,7 @@ https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/s
           --dasbhoard-id gcp-cost-dashboard
     ```
 3. You can navigate to dashboards in QuickSight once deplyment is finished. You might need to adjust permissions on the role that QuickSight uses to access S3 and Athena.
+
+
+#Troubleshooting and Support
+We encourage you to open new issue with description of the problem on github.
