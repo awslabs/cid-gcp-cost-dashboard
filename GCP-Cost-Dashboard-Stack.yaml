@@ -194,52 +194,76 @@ Resources:
           
           glue_client = boto3.client('glue')
           
-          script_location = os.environ.get('ScriptLocation')
-          focus_script_location = os.environ.get('FocusScriptLocation')
-          gcp_connection_name = os.environ.get('GCPConnectionName')
-          gcp_job_bookmark_keys = os.environ.get('GCPJobBookmarkKeys')
-          target_catalog_database_name = os.environ.get('TargetCatalogDBName')
-          dynamodb_admin_job_table_name = os.environ.get('DynamoDBAdminJobTable')
-          gcp_billing_full_table_names = os.environ.get('GCPFullTableName')
-          if gcp_billing_full_table_names is not None:
-              gcp_billing_full_table_names = gcp_billing_full_table_names.split(";")
-          else:
-              gcp_billing_full_table_names = []
-          gcp_pricing_full_table_name = os.environ.get('GCPPricingFullTableName')
-          gcp_focus_full_table_names = os.environ.get('GCPFocusFullTableName')
-          if gcp_focus_full_table_names is not None:
-              gcp_focus_full_table_names = gcp_focus_full_table_names.split(";")
-          else:
-              gcp_focus_full_table_names = []
-          glue_role = os.environ.get('GlueRoleArn')
-          billing_crawler_name = os.environ.get('BillingCrawlerName')
-          pricing_crawler_name = os.environ.get('PricingCrawlerName')
-          focus_crawler_name = os.environ.get('FocusCrawlerName')
-          billing_target_s3_path = os.environ.get('BillingTargetS3Path')
-          pricing_target_s3_path = os.environ.get('PricingTargetS3Path')
-          focus_target_s3_path = os.environ.get('FocusTargetS3Path')
-          security_configuration = os.environ.get('SecurityConfiguration')
-          glue_crontab = os.environ.get('GlueCrontab')
-          glue_job_trigger = os.environ.get('GlueJobTrigger')
-          glue_focus_job_trigger = os.environ.get('FOCUSGlueJobTrigger')
-          glue_crawler_trigger = os.environ.get('GlueCrawlerTrigger')
-          focus_glue_crawler_trigger = os.environ.get('FocusGlueCrawlerTrigger')
-          glue_workflow = os.environ.get('GlueWorkflow')
-          glue_focus_workflow = os.environ.get('GlueFocusWorkflow')
-          script_bucket = os.environ.get('ScriptBucketName')
-          shuffle_bucket = "spark.shuffle.glue.s3ShuffleBucket=s3://"+script_bucket+"/shuffle/"
-          kms_key_arn = os.environ.get('KmsKeyArn')
+          def get_env_vars():
+              """Get all environment variables with proper validation"""
+              vars = {
+                  'script_location': os.environ.get('ScriptLocation'),
+                  'focus_script_location': os.environ.get('FocusScriptLocation'),
+                  'gcp_connection_name': os.environ.get('GCPConnectionName'),
+                  'gcp_job_bookmark_keys': os.environ.get('GCPJobBookmarkKeys'),
+                  'target_catalog_database_name': os.environ.get('TargetCatalogDBName'),
+                  'dynamodb_admin_job_table_name': os.environ.get('DynamoDBAdminJobTable'),
+                  'glue_role': os.environ.get('GlueRoleArn'),
+                  'billing_crawler_name': os.environ.get('BillingCrawlerName'),
+                  'pricing_crawler_name': os.environ.get('PricingCrawlerName'),
+                  'focus_crawler_name': os.environ.get('FocusCrawlerName'),
+                  'billing_target_s3_path': os.environ.get('BillingTargetS3Path'),
+                  'pricing_target_s3_path': os.environ.get('PricingTargetS3Path'),
+                  'focus_target_s3_path': os.environ.get('FocusTargetS3Path'),
+                  'security_configuration': os.environ.get('SecurityConfiguration'),
+                  'glue_crontab': os.environ.get('GlueCrontab'),
+                  'glue_job_trigger': os.environ.get('GlueJobTrigger'),
+                  'glue_focus_job_trigger': os.environ.get('FOCUSGlueJobTrigger'),
+                  'glue_crawler_trigger': os.environ.get('GlueCrawlerTrigger'),
+                  'focus_glue_crawler_trigger': os.environ.get('FocusGlueCrawlerTrigger'),
+                  'glue_workflow': os.environ.get('GlueWorkflow'),
+                  'glue_focus_workflow': os.environ.get('GlueFocusWorkflow'),
+                  'script_bucket': os.environ.get('ScriptBucketName'),
+                  'kms_key_arn': os.environ.get('KmsKeyArn')
+              }
+              
+              # Parse billing table names
+              billing_tables = os.environ.get('GCPFullTableName')
+              vars['gcp_billing_full_table_names'] = billing_tables.split(',') if billing_tables else []
+              
+              # Parse pricing table name
+              vars['gcp_pricing_full_table_name'] = os.environ.get('GCPPricingFullTableName')
+              
+              # Parse FOCUS table names with validation
+              focus_tables = os.environ.get('GCPFocusFullTableName', '')
+              vars['gcp_focus_full_table_names'] = parse_focus_tables(focus_tables)
+              
+              vars['shuffle_bucket'] = f"spark.shuffle.glue.s3ShuffleBucket=s3://{vars['script_bucket']}/shuffle/"
+              
+              return vars
           
-          def create_glue_job_trigger(job_names):
-              trigger_name = glue_job_trigger
-              actions = []
-              for job_name in job_names:
-                action = {
-                          'JobName': job_name,
-                          'Arguments': {}
-                }
-                actions.append(action)
-              # Check if the triggers already exist
+          def validate_table_name(table_name: str, is_focus: bool = False) -> bool:
+              """Validate BigQuery table name format"""
+              if is_focus and (not table_name or table_name.strip() == ''):
+                  return True
+              
+              if not table_name or not isinstance(table_name, str):
+                  return False
+              
+              try:
+                  parts = table_name.strip().split('.')
+                  return len(parts) == 3 and all(parts)
+              except:
+                  return False
+          
+          def parse_focus_tables(focus_tables: str) -> list:
+              """Parse and validate FOCUS table names"""
+              if not focus_tables or focus_tables.strip() == '':
+                  return []
+              
+              return [table.strip() for table in focus_tables.split(',') 
+                      if validate_table_name(table.strip(), is_focus=True)]
+          
+          def create_glue_job_trigger(job_names, env_vars):
+              """Create or update Glue job trigger"""
+              trigger_name = env_vars['glue_job_trigger']
+              actions = [{'JobName': job_name, 'Arguments': {}} for job_name in job_names]
+              
               try:
                   glue_client.get_trigger(Name=trigger_name)
                   print(f'trigger {trigger_name} exists, updating..')
@@ -250,8 +274,7 @@ Resources:
                               'Name': trigger_name,
                               'Description': "Trigger for running GCP Glue Jobs every 24 hours",
                               'Actions': actions,
-                              #'WorkflowName': glue_workflow,
-                              'Schedule': "cron("+glue_crontab+")"
+                              'Schedule': f"cron({env_vars['glue_crontab']})"
                           }
                       )
                   except Exception as exc:
@@ -262,27 +285,24 @@ Resources:
                   try:
                       glue_client.create_trigger(
                           Name=trigger_name,
-                          #Description="Trigger for running " + job_name + " every 24 hours",
                           Description="Trigger for running GCP Glue Job every 24 hours",
                           Type='SCHEDULED',
                           Actions=actions,
                           StartOnCreation=True,
-                          WorkflowName=glue_workflow,
-                          Schedule="cron("+glue_crontab+")"
+                          WorkflowName=env_vars['glue_workflow'],
+                          Schedule=f"cron({env_vars['glue_crontab']})"
                       )
                   except Exception as exc:
                       print(f'ERROR Creating {trigger_name}: {exc}')
           
-          def create_focus_glue_job_trigger(job_names):
-              trigger_name = glue_focus_job_trigger
-              actions = []
-              for job_name in job_names:
-                action = {
-                          'JobName': job_name,
-                          'Arguments': {}
-                }
-                actions.append(action)
-              # Check if the triggers already exist
+          def create_focus_glue_job_trigger(job_names, env_vars):
+              """Create or update FOCUS Glue job trigger"""
+              if not job_names:  # Don't create trigger if no FOCUS jobs
+                  return
+                  
+              trigger_name = env_vars['glue_focus_job_trigger']
+              actions = [{'JobName': job_name, 'Arguments': {}} for job_name in job_names]
+              
               try:
                   glue_client.get_trigger(Name=trigger_name)
                   print(f'trigger {trigger_name} exists, updating..')
@@ -293,8 +313,7 @@ Resources:
                               'Name': trigger_name,
                               'Description': "Trigger for running GCP FOCUS Glue Jobs every 24 hours",
                               'Actions': actions,
-                              #'WorkflowName': glue_workflow,
-                              'Schedule': "cron("+glue_crontab+")"
+                              'Schedule': f"cron({env_vars['glue_crontab']})"
                           }
                       )
                   except Exception as exc:
@@ -305,292 +324,289 @@ Resources:
                   try:
                       glue_client.create_trigger(
                           Name=trigger_name,
-                          #Description="Trigger for running " + job_name + " every 24 hours",
                           Description="Trigger for running GCP FOCUS Glue Job every 24 hours",
                           Type='SCHEDULED',
                           Actions=actions,
                           StartOnCreation=True,
-                          WorkflowName=glue_focus_workflow,
-                          Schedule="cron("+glue_crontab+")"
+                          WorkflowName=env_vars['glue_focus_workflow'],
+                          Schedule=f"cron({env_vars['glue_crontab']})"
                       )
                   except Exception as exc:
                       print(f'ERROR Creating {trigger_name}: {exc}')
           
-          def create_glue_crawler_trigger(job_names,focus_job_names,billing_crawler_name,pricing_crawler_name,focus_crawler_name):
-              trigger_name = glue_crawler_trigger
-              focus_trigger_name = focus_glue_crawler_trigger
-              conditions = []
-              focus_conditions = []
-              for job_name in job_names:
-                condition = {
-                    'LogicalOperator': "EQUALS",
-                    'JobName': job_name,
-                    'State': "SUCCEEDED"
-                }
-                conditions.append(condition)
-              for focus_job_name in focus_job_names:
-                focus_condition = {
-                    'LogicalOperator': "EQUALS",
-                    'JobName': focus_job_name,
-                    'State': "SUCCEEDED"
-                }
-                focus_conditions.append(focus_condition)
+          def create_glue_crawler_trigger(job_names, focus_job_names, env_vars):
+              """Create or update Glue crawler triggers"""
+              conditions = [
+                  {'LogicalOperator': "EQUALS", 'JobName': name, 'State': "SUCCEEDED"}
+                  for name in job_names
+              ]
+              
+              focus_conditions = [
+                  {'LogicalOperator': "EQUALS", 'JobName': name, 'State': "SUCCEEDED"}
+                  for name in focus_job_names
+              ]
+              
+              trigger_name = env_vars['glue_crawler_trigger']
+              focus_trigger_name = env_vars['focus_glue_crawler_trigger']
+              
               try:
-                  # Check if the triggers already exist
                   glue_client.get_trigger(Name=trigger_name)
                   print(f'trigger {trigger_name} exists, updating..')
-                  try: 
+                  
+                  # Update main trigger
+                  try:
                       glue_client.update_trigger(
                           Name=trigger_name,
                           TriggerUpdate={
                               'Name': trigger_name,
-                              'Description': "Trigger for running " + billing_crawler_name + " and " + pricing_crawler_name + " conditionally",
-                              'Predicate': {
-                                'Logical':'AND',
-                                'Conditions': conditions
-                              },
-                              'Actions': [{
-                                  'CrawlerName': billing_crawler_name,
-                                  'Arguments': {}
-                                },
-                                {
-                                  'CrawlerName': pricing_crawler_name,
-                                  'Arguments': {}
-                                }
+                              'Description': f"Trigger for running {env_vars['billing_crawler_name']} and {env_vars['pricing_crawler_name']} conditionally",
+                              'Predicate': {'Logical': 'AND', 'Conditions': conditions},
+                              'Actions': [
+                                  {'CrawlerName': env_vars['billing_crawler_name'], 'Arguments': {}},
+                                  {'CrawlerName': env_vars['pricing_crawler_name'], 'Arguments': {}}
                               ]
                           }
                       )
                   except Exception as exc:
-                    print(f'ERROR updating trigger {trigger_name}: {exc}')
-                  try: 
-                      glue_client.update_trigger(
-                          Name=focus_trigger_name,
-                          TriggerUpdate={
-                              'Name': focus_trigger_name,
-                              'Description': "Trigger for running " + focus_crawler_name + " conditionally",
-                              'Predicate': {
-                                'Logical':'AND',
-                                'Conditions': focus_conditions
-                              },
-                              'Actions': [{
-                                  'CrawlerName': focus_crawler_name,
-                                  'Arguments': {}
-                                }
-                              ]
-                          }
-                      )
-                  except Exception as exc:
-                    print(f'ERROR updating FOCUS trigger {trigger_name}: {exc}')
-                  return
+                      print(f'ERROR updating trigger {trigger_name}: {exc}')
+                  
+                  # Update FOCUS trigger if we have FOCUS jobs
+                  if focus_job_names:
+                      try:
+                          glue_client.update_trigger(
+                              Name=focus_trigger_name,
+                              TriggerUpdate={
+                                  'Name': focus_trigger_name,
+                                  'Description': f"Trigger for running {env_vars['focus_crawler_name']} conditionally",
+                                  'Predicate': {'Logical': 'AND', 'Conditions': focus_conditions},
+                                  'Actions': [
+                                      {'CrawlerName': env_vars['focus_crawler_name'], 'Arguments': {}}
+                                  ]
+                              }
+                          )
+                      except Exception as exc:
+                          print(f'ERROR updating FOCUS trigger {focus_trigger_name}: {exc}')
               except glue_client.exceptions.EntityNotFoundException:
-                  print(f'Creating {trigger_name}')
+                  # Create main trigger
                   try:
                       glue_client.create_trigger(
                           Name=trigger_name,
-                          Description="Trigger for running " + billing_crawler_name + " and " + pricing_crawler_name + " conditionally",
+                          Description=f"Trigger for running {env_vars['billing_crawler_name']} and {env_vars['pricing_crawler_name']} conditionally",
                           Type='CONDITIONAL',
-                          WorkflowName=glue_workflow,
+                          WorkflowName=env_vars['glue_workflow'],
                           StartOnCreation=True,
-                          Predicate={
-                            'Logical':'AND',
-                            'Conditions': conditions
-                          },
-                          Actions=[{
-                              'CrawlerName': billing_crawler_name,
-                              'Arguments': {}
-                            },
-                            {
-                              'CrawlerName': pricing_crawler_name,
-                              'Arguments': {}
-                            }
+                          Predicate={'Logical': 'AND', 'Conditions': conditions},
+                          Actions=[
+                              {'CrawlerName': env_vars['billing_crawler_name'], 'Arguments': {}},
+                              {'CrawlerName': env_vars['pricing_crawler_name'], 'Arguments': {}}
                           ]
                       )
                   except Exception as exc:
-                    print(f'ERROR creating trigger {trigger_name}: {exc}')
-                  print(f'Creating {focus_trigger_name}')
-                  try:
-                      glue_client.create_trigger(
-                          Name=focus_trigger_name,
-                          Description="Trigger for running " + focus_crawler_name + " conditionally",
-                          Type='CONDITIONAL',
-                          WorkflowName=glue_focus_workflow,
-                          StartOnCreation=True,
-                          Predicate={
-                            'Logical':'AND',
-                            'Conditions': focus_conditions
-                          },
-                          Actions=[{
-                              'CrawlerName': focus_crawler_name,
-                              'Arguments': {}
-                            }
-                          ]
-                      )
-                  except Exception as exc:
-                    print(f'ERROR creating trigger {focus_trigger_name}: {exc}')
+                      print(f'ERROR creating trigger {trigger_name}: {exc}')
+                  
+                  # Create FOCUS trigger if we have FOCUS jobs
+                  if focus_job_names:
+                      try:
+                          glue_client.create_trigger(
+                              Name=focus_trigger_name,
+                              Description=f"Trigger for running {env_vars['focus_crawler_name']} conditionally",
+                              Type='CONDITIONAL',
+                              WorkflowName=env_vars['glue_focus_workflow'],
+                              StartOnCreation=True,
+                              Predicate={'Logical': 'AND', 'Conditions': focus_conditions},
+                              Actions=[
+                                  {'CrawlerName': env_vars['focus_crawler_name'], 'Arguments': {}}
+                              ]
+                          )
+                      except Exception as exc:
+                          print(f'ERROR creating FOCUS trigger {focus_trigger_name}: {exc}')
           
-          def create_glue_job(job_name, table_name, target_s3_path, script_location, bookmark_keys):
-              table_project, table_dataset, table_id = table_name.split('.')
-              # check if job exists
+          def create_glue_job(job_name, table_name, target_s3_path, script_location, bookmark_keys, env_vars):
+              """Create Glue job with proper error handling"""
+              try:
+                  project, dataset, table_id = table_name.split('.')
+              except ValueError as e:
+                  return f'Error parsing table name {table_name}: {str(e)}'
+              
               try:
                   glue_client.get_job(JobName=job_name)
                   return f'Job {job_name} already exists.'
               except glue_client.exceptions.EntityNotFoundException:
-                  response = glue_client.create_job(
-                      Name=job_name,
-                      Role=glue_role,
-                      Command={
-                          'Name': 'glueetl',
-                          'ScriptLocation': script_location
-                      },
-                      Connections={'Connections': [gcp_connection_name]},
-                      DefaultArguments={
-                          '--job-bookmark-option': "job-bookmark-disable",
-                          '--enable-auto-scaling': "true",
-                          '--enable-continuous-cloudwatch-log': "true",
-                          '--enable-observability-metrics': "true",
-                          '--enable-metrics': "true",
-                          '--gcp_parent_project': table_project,
-                          '--gcp_full_table_name': table_name,
-                          '--gcp_connection_name': gcp_connection_name,
-                          '--gcp_job_bookmark_keys': bookmark_keys,
-                          '--gcp_materialization_dataset': table_dataset,
-                          '--target_s3_path': target_s3_path,
-                          '--target_catalog_database_name': target_catalog_database_name,
-                          '--target_catalog_table_name': target_s3_path.rstrip('/').split('/')[-1],
-                          '--dynamodb_admin_job_table_name': dynamodb_admin_job_table_name,
-                          '--write-shuffle-files-to-s3': "true",
-                          '--conf': shuffle_bucket,
-                          '--spark.shuffle.storage.s3.serverSideEncryption.algorithm': "SSE-KMS",
-                          '--spark.shuffle.storage.s3.serverSideEncryption.kms.key': kms_key_arn
-
-                      },
-                      SecurityConfiguration=security_configuration,
-                      WorkerType="G.1X",
-                      NumberOfWorkers=2,
-                      GlueVersion="4.0"
-                  )
-                  if response != job_name:
-                    #glue_client.start_job_run(JobName=job_name)
-                    return f'Job {job_name} created successfully.'
-                  else:
-                    return f'Error creating Job {job_name}'
+                  try:
+                      response = glue_client.create_job(
+                          Name=job_name,
+                          Role=env_vars['glue_role'],
+                          Command={
+                              'Name': 'glueetl',
+                              'ScriptLocation': script_location
+                          },
+                          Connections={'Connections': [env_vars['gcp_connection_name']]},
+                          DefaultArguments={
+                              '--job-bookmark-option': "job-bookmark-disable",
+                              '--enable-auto-scaling': "true",
+                              '--enable-continuous-cloudwatch-log': "true",
+                              '--enable-observability-metrics': "true",
+                              '--enable-metrics': "true",
+                              '--gcp_parent_project': project,
+                              '--gcp_full_table_name': table_name,
+                              '--gcp_connection_name': env_vars['gcp_connection_name'],
+                              '--gcp_job_bookmark_keys': bookmark_keys,
+                              '--gcp_materialization_dataset': dataset,
+                              '--target_s3_path': target_s3_path,
+                              '--target_catalog_database_name': env_vars['target_catalog_database_name'],
+                              '--target_catalog_table_name': target_s3_path.rstrip('/').split('/')[-1],
+                              '--dynamodb_admin_job_table_name': env_vars['dynamodb_admin_job_table_name'],
+                              '--write-shuffle-files-to-s3': "true",
+                              '--conf': env_vars['shuffle_bucket'],
+                              '--spark.shuffle.storage.s3.serverSideEncryption.algorithm': "SSE-KMS",
+                              '--spark.shuffle.storage.s3.serverSideEncryption.kms.key': env_vars['kms_key_arn']
+                          },
+                          SecurityConfiguration=env_vars['security_configuration'],
+                          WorkerType="G.1X",
+                          NumberOfWorkers=2,
+                          GlueVersion="4.0"
+                      )
+                      return f'Job {job_name} created successfully.'
+                  except Exception as e:
+                      return f'Error creating job {job_name}: {str(e)}'
           
           def delete_glue_job(job_name):
+              """Delete Glue job with error handling"""
               try:
                   glue_client.delete_job(JobName=job_name)
                   return f'deleting {job_name}'
               except Exception as exc:
-                  return f'Error on deleting {job_name} : {exc}'
+                  return f'Error on deleting {job_name}: {exc}'
           
           def delete_trigger(trigger_name):
+              """Delete trigger with error handling"""
               try:
                   glue_client.delete_trigger(Name=trigger_name)
                   return f'deleting {trigger_name}'
               except Exception as exc:
-                  return f'Error on deleting {trigger_name} : {exc}'
+                  return f'Error on deleting {trigger_name}: {exc}'
           
-          def on_create_or_update():
-              """ create jobs """
+          def on_create_or_update(env_vars):
+              """Handle create/update events"""
               response = {}
-              job_names=[]
-              focus_job_names=[]
+              job_names = []
+              focus_job_names = []
           
-              #Create jobs for each billing table
-              for table_name in gcp_billing_full_table_names:
+              # Create billing jobs
+              for table_name in env_vars['gcp_billing_full_table_names']:
                   job_name = f'GcpApp_{table_name}'
                   job_names.append(job_name)
                   print(f'Creating Glue Job {job_name} ..')
                   response[table_name] = create_glue_job(
                       job_name=job_name,
                       table_name=table_name,
-                      target_s3_path=billing_target_s3_path,
-                      script_location=script_location,
-                      bookmark_keys=gcp_job_bookmark_keys
+                      target_s3_path=env_vars['billing_target_s3_path'],
+                      script_location=env_vars['script_location'],
+                      bookmark_keys=env_vars['gcp_job_bookmark_keys'],
+                      env_vars=env_vars
                   )
           
-              #Create job for pricing
-              job_name = f'GcpApp_{gcp_pricing_full_table_name}'
+              # Create pricing job
+              job_name = f'GcpApp_{env_vars["gcp_pricing_full_table_name"]}'
               job_names.append(job_name)
               print(f'Creating Glue Job {job_name} ..')
-              response[gcp_pricing_full_table_name] = create_glue_job(
+              response[env_vars['gcp_pricing_full_table_name']] = create_glue_job(
                   job_name=job_name,
-                  table_name=gcp_pricing_full_table_name,
-                  target_s3_path=pricing_target_s3_path,
-                  script_location=script_location,
-                  bookmark_keys=gcp_job_bookmark_keys
+                  table_name=env_vars['gcp_pricing_full_table_name'],
+                  target_s3_path=env_vars['pricing_target_s3_path'],
+                  script_location=env_vars['script_location'],
+                  bookmark_keys=env_vars['gcp_job_bookmark_keys'],
+                  env_vars=env_vars
               )
-
-              #Create jobs for each focus table
-              for table_name in gcp_focus_full_table_names:
-                  job_name = f'GcpApp_Focus_{table_name}'
-                  focus_job_names.append(job_name)
-                  print(f'Creating Focus Glue Job {job_name} ..')
-                  response[table_name] = create_glue_job(
-                      job_name=job_name,
-                      table_name=table_name,
-                      target_s3_path=focus_target_s3_path,
-                      script_location=focus_script_location,
-                      bookmark_keys="x_ExportTime"
-                  )
+          
+              # Create FOCUS jobs if configured
+              if env_vars['gcp_focus_full_table_names']:
+                  for table_name in env_vars['gcp_focus_full_table_names']:
+                      if validate_table_name(table_name, is_focus=True):
+                          job_name = f'GcpApp_Focus_{table_name}'
+                          focus_job_names.append(job_name)
+                          print(f'Creating Focus Glue Job {job_name} ..')
+                          response[table_name] = create_glue_job(
+                              job_name=job_name,
+                              table_name=table_name,
+                              target_s3_path=env_vars['focus_target_s3_path'],
+                              script_location=env_vars['focus_script_location'],
+                              bookmark_keys="x_ExportTime",
+                              env_vars=env_vars
+                          )
           
               # Create triggers for jobs and crawlers
-              print(f"Updating triggers for CID GCP Glue Jobs..")
-              create_glue_job_trigger(job_names)
-              create_focus_glue_job_trigger(focus_job_names)
-              print(f"Updating triggers for {billing_crawler_name} and {pricing_crawler_name}..")
-              create_glue_crawler_trigger(job_names,focus_job_names,billing_crawler_name,pricing_crawler_name,focus_crawler_name)
-              print(f"Start run of the workflow: {glue_workflow}")
-              glue_client.start_workflow_run(Name=glue_workflow)
-              print(f"Start run of the workflow: {glue_focus_workflow}")
-              glue_client.start_workflow_run(Name=glue_focus_workflow)
+              print("Updating triggers for CID GCP Glue Jobs..")
+              create_glue_job_trigger(job_names, env_vars)
+              
+              if focus_job_names:
+                  create_focus_glue_job_trigger(focus_job_names, env_vars)
+              
+              print(f"Updating triggers for {env_vars['billing_crawler_name']} and {env_vars['pricing_crawler_name']}..")
+              create_glue_crawler_trigger(job_names, focus_job_names, env_vars)
+              
+              print(f"Start run of the workflow: {env_vars['glue_workflow']}")
+              glue_client.start_workflow_run(Name=env_vars['glue_workflow'])
+              
+              if focus_job_names:
+                  print(f"Start run of the workflow: {env_vars['glue_focus_workflow']}")
+                  glue_client.start_workflow_run(Name=env_vars['glue_focus_workflow'])
+              
               return response
           
-          def on_delete():
+          def on_delete(env_vars):
+              """Handle delete events"""
               response = {}
-              job_names=[]
+              job_names = []
           
-              #Delete jobs for each billing table
-              for table_name in gcp_billing_full_table_names:
+              # Delete billing jobs
+              for table_name in env_vars['gcp_billing_full_table_names']:
                   job_name = f'GcpApp_{table_name}'
                   job_names.append(job_name)
-                  response[table_name] = delete_glue_job(
-                      job_name=job_name,
-                 )
+                  response[table_name] = delete_glue_job(job_name)
           
-              #Delete job for pricing
-              job_name = f'GcpApp_{gcp_pricing_full_table_name}'
+              # Delete pricing job
+              job_name = f'GcpApp_{env_vars["gcp_pricing_full_table_name"]}'
               job_names.append(job_name)
-              response[gcp_pricing_full_table_name] = delete_glue_job(
-                  job_name=job_name,
-              )
+              response[env_vars['gcp_pricing_full_table_name']] = delete_glue_job(job_name)
               
-              #Delete jobs for each focus table
-              for table_name in gcp_focus_full_table_names:
-                  job_name = f'GcpApp_Focus_{table_name}'
-                  job_names.append(job_name)
-                  response[table_name] = delete_glue_job(
-                      job_name=job_name,
-                  )
-
-              #Delete triggers
-              response[glue_job_trigger]=delete_trigger(glue_job_trigger)
-              response[glue_crawler_trigger]=delete_trigger(glue_crawler_trigger)
+              # Delete FOCUS jobs
+              for table_name in env_vars['gcp_focus_full_table_names']:
+                  if validate_table_name(table_name, is_focus=True):
+                      job_name = f'GcpApp_Focus_{table_name}'
+                      job_names.append(job_name)
+                      response[table_name] = delete_glue_job(job_name)
+          
+              # Delete triggers
+              response[env_vars['glue_job_trigger']] = delete_trigger(env_vars['glue_job_trigger'])
+              response[env_vars['glue_crawler_trigger']] = delete_trigger(env_vars['glue_crawler_trigger'])
+              if env_vars['gcp_focus_full_table_names']:
+                  response[env_vars['glue_focus_job_trigger']] = delete_trigger(env_vars['glue_focus_job_trigger'])
+                  response[env_vars['focus_glue_crawler_trigger']] = delete_trigger(env_vars['focus_glue_crawler_trigger'])
               
               return response
           
           def lambda_handler(event, context):
+              """Main Lambda handler"""
               request_type = event.get('RequestType', 'Undef')
               region = boto3.session.Session().region_name
               log_url = f"https://{region}.console.aws.amazon.com/cloudwatch/home?region={region}#logEvent:group={context.log_group_name};stream={context.log_stream_name}"
+              
               try:
-                  if request_type in ( 'Create', 'Update') :
-                      response = on_create_or_update()
+                  # Get environment variables
+                  env_vars = get_env_vars()
+                  
+                  if request_type in ('Create', 'Update'):
+                      response = on_create_or_update(env_vars)
                   elif request_type == 'Delete':
-                      response = on_delete()
-                  else: raise Exception('Unexpected request_type = {request_type}')
+                      response = on_delete(env_vars)
+                  else:
+                      raise Exception(f'Unexpected request_type = {request_type}')
+                      
                   cfnresponse.send(event, context, cfnresponse.SUCCESS, response)
               except Exception as exc:
-                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(exc) + ' See logs: ' + log_url})
+                  error_msg = f'{str(exc)} See logs: {log_url}'
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': error_msg})
       Handler: index.lambda_handler
       Role: !GetAtt GCPLambdaRole.Arn
       FunctionName: !Sub "${Prefix}-GCPGlueGenerator"
