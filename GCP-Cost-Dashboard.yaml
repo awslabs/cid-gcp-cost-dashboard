@@ -5,10 +5,10 @@ dashboards:
       - gcp_currency
       - gcp_summary_with_pricing
     name: 'GCP Cost Dashboard '
-    dashboardId: gcp-cost-dashboard
+    dashboardId: gcp-cost-dashboard-v2
     #templateId: gcp-cost-dashboard
     category: Custom
-    templateId: gcp
+    templateId: gcp-v2
     sourceAccountId: '905125075217'
     region: eu-west-1
 datasets:
