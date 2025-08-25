@@ -224,7 +224,7 @@ Resources:
               
               # Parse billing table names
               billing_tables = os.environ.get('GCPFullTableName')
-              vars['gcp_billing_full_table_names'] = billing_tables.split(',') if billing_tables else []
+              vars['gcp_billing_full_table_names'] = billing_tables.split(';') if billing_tables else []
               
               # Parse pricing table name
               vars['gcp_pricing_full_table_name'] = os.environ.get('GCPPricingFullTableName')
@@ -256,7 +256,7 @@ Resources:
               if not focus_tables or focus_tables.strip() == '':
                   return []
               
-              return [table.strip() for table in focus_tables.split(',') 
+              return [table.strip() for table in focus_tables.split(';') 
                       if validate_table_name(table.strip(), is_focus=True)]
           
           def create_glue_job_trigger(job_names, env_vars):
