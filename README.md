@@ -49,7 +49,7 @@ At the end of prerequisites, you should have the following values:
 
 ## Infrastructure Deployment Guide
 
-##### 1. Open Cloudformation in your AWS console, in your CID account, or [Click Here](https://eu-central-1.console.aws.amazon.com/cloudformation/home?region=eu-central-1#/stacks/create/review?templateURL=https://github.com/https://github.com/awslabs/cid-gcp-cost-dashboard/GCP-Cost-Dashboard-Stack.yml) for complete Step1&2.
+##### 1. Open Cloudformation in your AWS console, in your CID account, or [Click Here](https://eu-central-1.console.aws.amazon.com/cloudformation/home?region=eu-central-1#/stacks/create/review?templateURL=https://github.com/https://github.com/awslabs/cid-gcp-cost-dashboard/GCP-Cost-Dashboard-Stack.yaml) for complete Step1&2.
 
 https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks?filteringText=&filteringStatus=active&viewNested=true
 
