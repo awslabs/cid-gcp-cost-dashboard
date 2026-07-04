@@ -1319,6 +1319,7 @@ Resources:
           import boto3
           from botocore.exceptions import ClientError
           import datetime as dt
+          from awsglue.dynamicframe import DynamicFrame
 
           args = getResolvedOptions(sys.argv, ['JOB_NAME','gcp_full_table_name', 'gcp_parent_project', 'gcp_materialization_dataset', 'gcp_connection_name','gcp_job_bookmark_keys', 'target_s3_path','target_catalog_database_name', 'target_catalog_table_name','dynamodb_admin_job_table_name'])
 
@@ -1356,7 +1357,7 @@ Resources:
               try:
                     ingest_metadata = dynamodb_client.put_item(TableName=dynamodb_bookmark_table_name, Item=dyn_event)
               except ClientError:
-                    msg = 'Error putting item {} into {} table'.format(dyn_event, table)
+                    msg = 'Error putting item {} into {} table'.format(dyn_event, dynamodb_bookmark_table_name)
                     print(msg)
                     raise
 
@@ -1396,10 +1397,19 @@ Resources:
               transformation_ctx="GoogleBigQueryConnector0242forAWSGlue30_node1",
           )
 
-          #Check if the source dataset is empty. If empty exit.
-          source_is_empty(glueContext,GoogleBigQueryConnector0242forAWSGlue30_node1)
+          # Read the BigQuery source once and reuse it. The original script read
+          # the full source three times per run (empty check, write, and the
+          # max() bookmark), which stalls large or initial loads.
+          source_df = GoogleBigQueryConnector0242forAWSGlue30_node1.toDF().persist()
+          if source_df.head(1) == []:
+              print("No record Extracted! Committing and exiting job without processing.")
+              job.commit()
+              os._exit(0)
 
-          GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.coalesce(1)
+          max_bookmark_column = source_df.select(max(arg_gcp_job_bookmark_keys)).collect()[0][0]
+          max_bookmark_column = max_bookmark_column.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+          GoogleBigQueryConnector0242forAWSGlue30_node1 = DynamicFrame.fromDF(source_df, glueContext, "GoogleBigQueryConnector0242forAWSGlue30_node1").coalesce(1)
 
           print(GoogleBigQueryConnector0242forAWSGlue30_node1.schema())
           GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.resolveChoice(specs=[("_partitiondate", "cast:timestamp")])
@@ -1427,8 +1437,6 @@ Resources:
           AmazonS3_node.setFormat("glueparquet")
           AmazonS3_node.writeFrame(GoogleBigQueryConnector0242forAWSGlue30_node1)
 
-          max_bookmark_column = GoogleBigQueryConnector0242forAWSGlue30_node1.toDF().select(max(arg_gcp_job_bookmark_keys)).collect()[0][0]
-          max_bookmark_column = max_bookmark_column.strftime("%Y-%m-%d %H:%M:%S.%f")
           print(max_bookmark_column)
           putJobBookmarkToDynamoDb(dynamodb_client,arg_dynamodb_bookmark_table_name,arg_job_name,arg_gcp_job_bookmark_keys,max_bookmark_column)
           job.commit()
@@ -1454,6 +1462,7 @@ Resources:
           import boto3
           from botocore.exceptions import ClientError
           import datetime as dt
+          from awsglue.dynamicframe import DynamicFrame
 
           args = getResolvedOptions(sys.argv, ['JOB_NAME','gcp_full_table_name', 'gcp_parent_project', 'gcp_materialization_dataset', 'gcp_connection_name','gcp_job_bookmark_keys', 'target_s3_path','target_catalog_database_name', 'target_catalog_table_name','dynamodb_admin_job_table_name'])
 
@@ -1491,7 +1500,7 @@ Resources:
               try:
                     ingest_metadata = dynamodb_client.put_item(TableName=dynamodb_bookmark_table_name, Item=dyn_event)
               except ClientError:
-                    msg = 'Error putting item {} into {} table'.format(dyn_event, table)
+                    msg = 'Error putting item {} into {} table'.format(dyn_event, dynamodb_bookmark_table_name)
                     print(msg)
                     raise
 
@@ -1531,10 +1540,19 @@ Resources:
               transformation_ctx="GoogleBigQueryConnector0242forAWSGlue30_node1",
           )
 
-          #Check if the source dataset is empty. If empty exit.
-          source_is_empty(glueContext,GoogleBigQueryConnector0242forAWSGlue30_node1)
+          # Read the BigQuery source once and reuse it. The original script read
+          # the full source three times per run (empty check, write, and the
+          # max() bookmark), which stalls large or initial loads.
+          source_df = GoogleBigQueryConnector0242forAWSGlue30_node1.toDF().persist()
+          if source_df.head(1) == []:
+              print("No record Extracted! Committing and exiting job without processing.")
+              job.commit()
+              os._exit(0)
 
-          GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.coalesce(1)
+          max_bookmark_column = source_df.select(max(arg_gcp_job_bookmark_keys)).collect()[0][0]
+          max_bookmark_column = max_bookmark_column.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+          GoogleBigQueryConnector0242forAWSGlue30_node1 = DynamicFrame.fromDF(source_df, glueContext, "GoogleBigQueryConnector0242forAWSGlue30_node1").coalesce(1)
 
           print(GoogleBigQueryConnector0242forAWSGlue30_node1.schema())
           GoogleBigQueryConnector0242forAWSGlue30_node1 = GoogleBigQueryConnector0242forAWSGlue30_node1.resolveChoice(specs=[("_partitiondate", "cast:timestamp")])
@@ -1562,8 +1580,6 @@ Resources:
           AmazonS3_node.setFormat("glueparquet")
           AmazonS3_node.writeFrame(GoogleBigQueryConnector0242forAWSGlue30_node1)
 
-          max_bookmark_column = GoogleBigQueryConnector0242forAWSGlue30_node1.toDF().select(max(arg_gcp_job_bookmark_keys)).collect()[0][0]
-          max_bookmark_column = max_bookmark_column.strftime("%Y-%m-%d %H:%M:%S.%f")
           print(max_bookmark_column)
           putJobBookmarkToDynamoDb(dynamodb_client,arg_dynamodb_bookmark_table_name,arg_job_name,arg_gcp_job_bookmark_keys,max_bookmark_column)
           job.commit()
