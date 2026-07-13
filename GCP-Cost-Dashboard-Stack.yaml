@@ -1193,70 +1193,78 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
   
-  TargetBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref TargetBucket
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Sid: AllowSSLOnly
-            Action: s3:*
-            Effect: Deny
-            Principal: "*"
-            Resource: !Join ["", [!GetAtt TargetBucket.Arn, "/*"]]
-            Condition:
-              Bool:
-                aws:SecureTransport: false
-          - Sid: AllowTLS12Only
-            Action: s3:*
-            Effect: Deny
-            Principal: "*"
-            Resource: !Join ["", [!GetAtt TargetBucket.Arn, "/*"]]
-            Condition:
-              NumericLessThan:
-                s3:TlsVersion: 1.2
+ TargetBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref TargetBucket
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Sid: AllowSSLOnly
+              Action: s3:*
+              Effect: Deny
+              Principal: "*"
+              Resource:
+                - !GetAtt TargetBucket.Arn
+                - !Join ["", [!GetAtt TargetBucket.Arn, "/*"]]
+              Condition:
+                Bool:
+                  aws:SecureTransport: false
+            - Sid: AllowTLS12Only
+              Action: s3:*
+              Effect: Deny
+              Principal: "*"
+              Resource:
+                - !GetAtt TargetBucket.Arn
+                - !Join ["", [!GetAtt TargetBucket.Arn, "/*"]]
+              Condition:
+                NumericLessThan:
+                  s3:TlsVersion: 1.2
 
-  ScriptBucket:
-    Type: AWS::S3::Bucket
-    Properties:
-      BucketName: !Sub "${Prefix}-${BucketName}-script"
-      LoggingConfiguration:
-        DestinationBucketName: !Sub "${Prefix}-${BucketName}-script"
-        LogFilePrefix: "access-log"
-      VersioningConfiguration:
-        Status: "Enabled"
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: True
-        BlockPublicPolicy: True
-        IgnorePublicAcls: True
-        RestrictPublicBuckets: True
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
-  
-  ScriptBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref ScriptBucket
-      PolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Sid: AllowSSLOnly
-            Action: s3:*
-            Effect: Deny
-            Principal: "*"
-            Resource: !Join ["", [!GetAtt ScriptBucket.Arn, "/*"]]
-            Condition:
-              Bool:
-                aws:SecureTransport: false
-          - Sid: AllowTLS12Only
-            Action: s3:*
-            Effect: Deny
-            Principal: "*"
-            Resource: !Join ["", [!GetAtt ScriptBucket.Arn, "/*"]]
-            Condition:
-              NumericLessThan:
-                s3:TlsVersion: 1.2
+    ScriptBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: !Sub "${Prefix}-${BucketName}-script"
+        LoggingConfiguration:
+          DestinationBucketName: !Sub "${Prefix}-${BucketName}-script"
+          LogFilePrefix: "access-log"
+        VersioningConfiguration:
+          Status: "Enabled"
+        PublicAccessBlockConfiguration:
+          BlockPublicAcls: True
+          BlockPublicPolicy: True
+          IgnorePublicAcls: True
+          RestrictPublicBuckets: True
+      DeletionPolicy: Retain
+      UpdateReplacePolicy: Retain
+
+    ScriptBucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref ScriptBucket
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Sid: AllowSSLOnly
+              Action: s3:*
+              Effect: Deny
+              Principal: "*"
+              Resource:
+                - !GetAtt ScriptBucket.Arn
+                - !Join ["", [!GetAtt ScriptBucket.Arn, "/*"]]
+              Condition:
+                Bool:
+                  aws:SecureTransport: false
+            - Sid: AllowTLS12Only
+              Action: s3:*
+              Effect: Deny
+              Principal: "*"
+              Resource:
+                - !GetAtt ScriptBucket.Arn
+                - !Join ["", [!GetAtt ScriptBucket.Arn, "/*"]]
+              Condition:
+                NumericLessThan:
+                  s3:TlsVersion: 1.2
 
   GlueConnection:
     Type: AWS::Glue::Connection
