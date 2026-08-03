@@ -873,6 +873,9 @@ Resources:
               - kms:Disable*
               - kms:Get*
               - kms:Delete*
+              # CloudFormation propagates stack tags to this key on every stack update.
+              - kms:TagResource
+              - kms:UntagResource
               - kms:ScheduleKeyDeletion
               - kms:CancelKeyDeletion
             Resource: "*"
